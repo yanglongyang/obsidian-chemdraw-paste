@@ -5,7 +5,7 @@ import { join } from "path";
 import { captureWindowsClipboard, readCaptured } from "./capture/windows-capture";
 import { isValidCDX } from "./capture/cdx";
 import { NativeClipboardMonitor } from "./capture/windows-clipboard-monitor";
-import { resolveChemDrawSourcePath } from "./interaction/preview-source";
+import { managedPreviewPathFromMarkdownLine, resolveChemDrawSourcePath } from "./interaction/preview-source";
 import { openSourceWithDefaultApp } from "./interaction/source-opener";
 import { isChemDrawClipboard } from "./paste/chemdraw-detector";
 import { mergeProbeResults } from "./probe/clipboard-probe";
@@ -47,6 +47,7 @@ class ChemDrawPastePlugin extends Plugin {
     this.addCommand({ id: "probe-next-paste", name: "Probe Next Paste", callback: () => this.armNextPaste() });
     this.addCommand({ id: "show-last-diagnostic", name: "Show Last Diagnostic", callback: () => this.showLastDiagnostic() });
     this.addCommand({ id: "import-clipboard-preview", name: "Import Clipboard Preview (experimental)", callback: () => this.importClipboardPreview() });
+    this.addCommand({ id: "refresh-current-chemdraw-preview", name: "Refresh Current ChemDraw Preview", callback: () => this.refreshCurrentChemDrawPreview() });
     this.addRibbonIcon("flask-conical", "ChemDraw Paste: Inspect Clipboard", () => void this.inspectClipboard());
     this.addSettingTab(new ChemDrawPasteControlTab(this.app, this));
     this.register(() => this.pasteProvider.disarm());
@@ -132,6 +133,50 @@ class ChemDrawPastePlugin extends Plugin {
       new Notice(`ChemDraw Paste import failed: ${error instanceof Error ? error.message : "unknown error"}`);
     }
     finally { await rm(stage, { recursive: true, force: true }); }
+  }
+
+  async refreshCurrentChemDrawPreview(): Promise<void> {
+    if (process.platform !== "win32") return void new Notice("ChemDraw Paste: refresh is currently Windows-only.");
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view?.file || !view.editor) return void new Notice("ChemDraw Paste: place the cursor on a managed preview embed first.");
+    const previewPath = managedPreviewPathFromMarkdownLine(view.editor.getLine(view.editor.getCursor("head").line), this.getAssetFolder());
+    if (!previewPath) return void new Notice("ChemDraw Paste: place the cursor on a managed ChemDraw preview first.");
+    const sourcePath = resolveChemDrawSourcePath(previewPath, this.getAssetFolder());
+    if (!sourcePath) return void new Notice("ChemDraw Paste: could not resolve the paired CDX source.");
+    const previewFile = this.app.vault.getAbstractFileByPath(previewPath);
+    const sourceFile = this.app.vault.getAbstractFileByPath(sourcePath);
+    if (!(previewFile instanceof TFile) || !(sourceFile instanceof TFile)) return void new Notice("ChemDraw Paste: the paired preview or source.cdx is missing.");
+    const stage = await mkdtemp(join(tmpdir(), "chemdraw-refresh-"));
+    try {
+      const captured = await captureWindowsClipboard(stage);
+      if (!captured.preview) throw new Error("no CF_ENHMETAFILE preview was available");
+      const previewData = await readCaptured(captured.preview.path);
+      let sourceData: ArrayBuffer | undefined;
+      for (const source of captured.sources) {
+        const data = await readCaptured(source.path);
+        if (source.format === "ChemDraw Interchange Format" && isValidCDX(data)) { sourceData = data; break; }
+      }
+      if (!sourceData) throw new Error("no valid ChemDraw CDX source was available");
+      const oldPreview = await this.app.vault.readBinary(previewFile);
+      const oldSource = await this.app.vault.readBinary(sourceFile);
+      let previewChanged = false;
+      let sourceChangeAttempted = false;
+      try {
+        await this.app.vault.modifyBinary(previewFile, previewData);
+        previewChanged = true;
+        sourceChangeAttempted = true;
+        await this.app.vault.modifyBinary(sourceFile, sourceData);
+      } catch (error) {
+        if (sourceChangeAttempted) await this.app.vault.modifyBinary(sourceFile, oldSource).catch(() => undefined);
+        if (previewChanged) await this.app.vault.modifyBinary(previewFile, oldPreview).catch(() => undefined);
+        throw error;
+      }
+      new Notice("ChemDraw Paste: updated the selected preview and CDX source.");
+    } catch (error) {
+      new Notice(`ChemDraw Paste refresh failed: ${error instanceof Error ? error.message : "unknown error"}`);
+    } finally {
+      await rm(stage, { recursive: true, force: true });
+    }
   }
 
   async setAssetFolder(value: string): Promise<boolean> {
@@ -306,8 +351,12 @@ class ChemDrawPasteControlTab extends PluginSettingTab {
       .addButton((button) => button.setButtonText("Arm Next Paste").onClick(() => this.plugin.armNextPaste()));
     new Setting(containerEl)
       .setName("Import clipboard preview (experimental)")
-      .setDesc("Ctrl+V is intercepted only when the native Windows clipboard cache confirms ChemDraw. A manual import writes a managed preview bundle and validated CDX source when available.")
+      .setDesc("Ctrl+V is intercepted only when the native Windows clipboard cache confirms ChemDraw. A manual import writes a managed preview/source pair.")
       .addButton((button) => button.setButtonText("Import Preview").setWarning().onClick(() => void this.plugin.importClipboardPreview()));
+    new Setting(containerEl)
+      .setName("Refresh current ChemDraw preview")
+      .setDesc("Place the cursor on a managed preview embed, copy the updated drawing in ChemDraw, then refresh both paired files in place.")
+      .addButton((button) => button.setButtonText("Refresh Preview").onClick(() => void this.plugin.refreshCurrentChemDrawPreview()));
     new Setting(containerEl)
       .setName("Show last diagnostic")
       .setDesc("Reopen the latest in-memory report; no data is saved to disk.")

@@ -1,8 +1,8 @@
-# ChemDraw Paste — v0.2.1 Preview Interaction Closure
+# ChemDraw Paste — v0.2.2 Refresh Existing ChemDraw Object
 
 `ChemDraw Paste` is a standalone Obsidian Desktop clipboard probe with an experimental import MVP and conservative Windows Smart Paste. Confirmed ChemDraw Interchange data is validated and stored as a `.cdx` sidecar.
 
-Normal workflow: ChemDraw Ctrl+C → Obsidian Ctrl+V → paired monthly preview/source files → double-click the managed preview to open its editable CDX through the Windows default application. No OLE or embedded ChemDraw editor is used; ordinary images remain unaffected.
+Normal workflow: ChemDraw Ctrl+C → Obsidian Ctrl+V → paired monthly preview/source files → double-click the managed preview to open its editable CDX through the Windows default application. After editing and saving in ChemDraw, copy the updated drawing and run **Refresh Current ChemDraw Preview** with the cursor on its embed. No OLE or embedded ChemDraw editor is used; ordinary images remain unaffected.
 
 ## What it does
 
@@ -38,6 +38,7 @@ The report retains only format names, provider names, byte sizes when a runtime 
 - **ChemDraw Paste: Probe Next Paste** — arms exactly one paste listener. Return to a Markdown editor and paste normally; the plugin observes event metadata only and opens the report after Obsidian receives the paste.
 - **ChemDraw Paste: Show Last Diagnostic** — reopens the last in-memory report. Nothing survives a plugin reload.
 - **ChemDraw Paste: Import Clipboard Preview (experimental)** — explicitly captures `CF_ENHMETAFILE` plus the validated ChemDraw Interchange source, creates a paired `ChemDraw/YYYY-MM/CD-...-preview.png` and `CD-...-source.cdx`, and inserts the preview. It must be run from an open Markdown note.
+- **ChemDraw Paste: Refresh Current ChemDraw Preview** — with the cursor on a managed preview embed and an updated ChemDraw drawing on the clipboard, replaces the existing preview and CDX in place without changing the Markdown link or object ID.
 
 When the plugin is enabled on Windows, copying from ChemDraw updates an in-memory native format cache. Pressing Ctrl+V in a Markdown note automatically imports only while that cache says the current clipboard contains ChemDraw formats. Plain text, browser HTML, PNG, and an unavailable monitor are left to Obsidian unchanged.
 

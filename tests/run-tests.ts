@@ -9,7 +9,7 @@ import { isChemDrawClipboard } from "../src/paste/chemdraw-detector";
 import { parseNativeClipboardStateLine } from "../src/capture/windows-clipboard-monitor";
 import { isValidCDX } from "../src/capture/cdx";
 import { chemDrawMonthFolder, makeChemDrawBundleId, normalizeChemDrawAssetFolder } from "../src/utils/vault-path";
-import { resolveChemDrawSourcePath } from "../src/interaction/preview-source";
+import { managedPreviewPathFromMarkdownLine, resolveChemDrawSourcePath } from "../src/interaction/preview-source";
 import { openSourceWithDefaultApp } from "../src/interaction/source-opener";
 
 const tests: Array<[string, () => void | Promise<void>]> = [];
@@ -80,6 +80,9 @@ test("managed preview resolver pairs only the current flat storage model", () =>
   assert.equal(resolveChemDrawSourcePath("ChemDraw/2026-09/CD-B-preview.png", "ChemDraw"), "ChemDraw/2026-09/CD-B-source.cdx");
   assert.equal(resolveChemDrawSourcePath("assets\\ChemDraw\\2026-09\\CD-A-preview.png", "assets/ChemDraw"), "assets/ChemDraw/2026-09/CD-A-source.cdx");
   assert.equal(resolveChemDrawSourcePath("ChemDraw/2026-09/CD-OLD/preview.png", "ChemDraw"), null);
+  assert.equal(managedPreviewPathFromMarkdownLine("![[ChemDraw/2026-09/CD-A-preview.png]]", "ChemDraw"), "ChemDraw/2026-09/CD-A-preview.png");
+  assert.equal(managedPreviewPathFromMarkdownLine("![[png/photo.png]]", "ChemDraw"), null);
+  assert.equal(managedPreviewPathFromMarkdownLine("![[ChemDraw/2026-09/CD-A-preview.png|caption]]", "ChemDraw"), "ChemDraw/2026-09/CD-A-preview.png");
 });
 
 test("default-app opener reports injected failures predictably", async () => {

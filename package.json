@@ -1,6 +1,6 @@
 {
   "name": "obsidian-chemdraw-paste",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Inspect ChemDraw clipboard formats in Obsidian Desktop.",
   "private": true,
   "main": "main.js",

@@ -24,3 +24,13 @@ export function resolveChemDrawSourcePath(previewPath: string, assetRoot: string
   if (!match) return null;
   return `${root}/${month}/${match[1]}-source.cdx`;
 }
+
+/** Find a managed preview embed on one Markdown line, without using display captions. */
+export function managedPreviewPathFromMarkdownLine(line: string, assetRoot: string): string | null {
+  const embeds = /!\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
+  for (const match of line.matchAll(embeds)) {
+    const previewPath = match[1].trim();
+    if (resolveChemDrawSourcePath(previewPath, assetRoot)) return previewPath.replace(/\\/g, "/");
+  }
+  return null;
+}

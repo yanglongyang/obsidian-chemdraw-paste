@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.2 — Refresh Existing ChemDraw Object
+
+### Added
+
+- Refresh an existing managed preview/source pair from the current ChemDraw clipboard.
+- Preserve object ID, file paths, and Markdown while replacing both files.
+- Roll back the preview if source replacement fails.
+
 ## 0.2.1 — Preview Interaction Closure
 
 ### Added
