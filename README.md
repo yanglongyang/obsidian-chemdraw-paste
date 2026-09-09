@@ -1,6 +1,6 @@
 # ChemDraw Paste — Clipboard Probe v0.1.0
 
-`ChemDraw Paste` is a standalone Obsidian Desktop clipboard probe with an experimental, user-triggered import MVP. On the validated Windows + ChemDraw 25 path, it saves `ChemDraw Interchange Format` as a `.cdx` source file.
+`ChemDraw Paste` is a standalone Obsidian Desktop clipboard probe with an experimental, user-triggered import MVP. It does not claim that any captured source candidate is CDX/CDXML or guaranteed editable.
 
 ## What it does
 
@@ -15,7 +15,7 @@
 - It does not modify, clear, or replace the clipboard.
 - The **Probe** commands do not save clipboard payloads, attachments, source files, or diagnostics to disk.
 - The **Probe** commands do not read or show clipboard text, binary data, CDX/CDXML, image data, or file contents.
-- The **Import Clipboard Preview (experimental)** command is the sole exception: after an explicit user click, it writes an EMF-derived PNG, a `.cdx` source file, and inserts Markdown in the active note.
+- The **Import Clipboard Preview (experimental)** command is the sole exception: after an explicit user click, it writes an EMF-derived PNG, raw source candidates, and inserts Markdown in the active note.
 - It never modifies, clears, or replaces the system clipboard, and it does not intercept normal paste behavior.
 - It has no telemetry, network, upload, cloud, AI, or database functionality.
 
@@ -32,7 +32,7 @@ The report retains only format names, provider names, byte sizes when a runtime 
 - **ChemDraw Paste: Inspect Clipboard** — immediately runs every available read-only provider and opens a diagnostic modal.
 - **ChemDraw Paste: Probe Next Paste** — arms exactly one paste listener. Return to a Markdown editor and paste normally; the plugin observes event metadata only and opens the report after Obsidian receives the paste.
 - **ChemDraw Paste: Show Last Diagnostic** — reopens the last in-memory report. Nothing survives a plugin reload.
-- **ChemDraw Paste: Import Clipboard Preview (experimental)** — explicitly captures `CF_ENHMETAFILE` plus `ChemDraw Interchange Format`, creates PNG and `.cdx` attachments, and inserts a preview. It must be run from an open Markdown note.
+- **ChemDraw Paste: Import Clipboard Preview (experimental)** — explicitly captures `CF_ENHMETAFILE` plus the two observed ChemDraw source candidates, creates attachments, and inserts a preview. It must be run from an open Markdown note.
 
 ## Manual diagnostic protocol
 
@@ -56,7 +56,7 @@ Repeat relevant tests with **Probe Next Paste** to compare what the browser past
 - Clipboard APIs available to plugins depend on Obsidian's current Electron runtime.
 - Some native Windows formats may be visible only through the Windows probe.
 - The Windows helper enumerates format names only; it intentionally does not read native payloads, so those sizes are shown as `unknown`.
-- The experimental import has been verified with a benzene selection in ChemDraw 25; a full reaction scheme remains to be validated.
+- The experimental import has not yet verified that either captured source candidate can be reopened by ChemDraw.
 - v0.1.0 does not intercept Ctrl+V or implement embedded OLE editing.
 - Windows is the target platform. On macOS and Linux the Windows provider is gracefully unavailable; other providers may still run.
 
