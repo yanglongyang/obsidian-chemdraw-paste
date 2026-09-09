@@ -16,7 +16,7 @@ import type { ProbeReport, ProviderProbeResult } from "./types";
 import { getObsidianVersion, getRuntimeInfo } from "./utils/runtime";
 import { chemDrawMonthFolder, makeChemDrawBundleId, normalizeChemDrawAssetFolder } from "./utils/vault-path";
 import { ClipboardProbeModal } from "./ui/probe-modal";
-import { WindowsChemDrawRenderer, isPng } from "./render/windows-chemdraw-renderer";
+import { WindowsChemDrawRenderer, getPngDimensions, isPng } from "./render/windows-chemdraw-renderer";
 
 interface PasteTarget {
   view: MarkdownView;
@@ -254,10 +254,12 @@ class ChemDrawPastePlugin extends Plugin {
       if (!previewPath) return;
       const adapter = this.app.vault.adapter;
       if (!(adapter instanceof FileSystemAdapter)) throw new Error("the current vault adapter does not expose local file paths");
-      const rendered = await this.renderer.render(adapter.getFullPath(sourcePath), stage);
+      const preview = this.app.vault.getAbstractFileByPath(previewPath);
+      const previousPreview = preview instanceof TFile ? await this.app.vault.readBinary(preview) : undefined;
+      const targetSize = previousPreview ? getPngDimensions(new Uint8Array(previousPreview)) : undefined;
+      const rendered = await this.renderer.render(adapter.getFullPath(sourcePath), stage, targetSize);
       const image = await readCaptured(rendered.outputPath);
       if (!isPng(new Uint8Array(image)) || image.byteLength < 128) throw new Error("renderer output failed PNG validation");
-      const preview = this.app.vault.getAbstractFileByPath(previewPath);
       if (preview instanceof TFile) await this.app.vault.modifyBinary(preview, image);
       else await this.app.vault.createBinary(previewPath, image);
       this.refreshRenderedPreviews(previewPath);

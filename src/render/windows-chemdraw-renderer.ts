@@ -8,7 +8,7 @@ export interface RenderResult {
 }
 
 const SCRIPT = String.raw`
-param([string]$SourcePath, [string]$OutputPath)
+param([string]$SourcePath, [string]$OutputPath, [int]$TargetWidth = 0, [int]$TargetHeight = 0)
 $ErrorActionPreference = 'Stop'
 $control = $null
 $rawPath = "$OutputPath.raw.png"
@@ -22,11 +22,15 @@ try {
   if (-not (Test-Path -LiteralPath $rawPath -PathType Leaf)) { throw 'ChemDraw COM control did not produce a PNG' }
   Add-Type -AssemblyName System.Drawing
   $bitmapIn = [System.Drawing.Bitmap]::new($rawPath)
-  $bitmapOut = [System.Drawing.Bitmap]::new($bitmapIn.Width, $bitmapIn.Height)
+  $targetWidth = if ($TargetWidth -gt 0) { $TargetWidth } else { $bitmapIn.Width }
+  $targetHeight = if ($TargetHeight -gt 0) { $TargetHeight } else { $bitmapIn.Height }
+  $bitmapOut = [System.Drawing.Bitmap]::new($targetWidth, $targetHeight)
   $graphics = [System.Drawing.Graphics]::FromImage($bitmapOut)
   try {
     $graphics.Clear([System.Drawing.Color]::White)
-    $graphics.DrawImageUnscaled($bitmapIn, 0, 0)
+    $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
+    $graphics.DrawImage($bitmapIn, 0, 0, $targetWidth, $targetHeight)
     $bitmapOut.Save($OutputPath, [System.Drawing.Imaging.ImageFormat]::Png)
   } finally {
     $graphics.Dispose(); $bitmapOut.Dispose(); $bitmapIn.Dispose()
@@ -44,14 +48,24 @@ function isPng(data: Uint8Array): boolean {
   return data.length > signature.length && signature.every((value, index) => data[index] === value);
 }
 
+function getPngDimensions(data: Uint8Array): { width: number; height: number } | undefined {
+  if (!isPng(data) || data.length < 24) return undefined;
+  const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+  const width = view.getUint32(16, false);
+  const height = view.getUint32(20, false);
+  return width > 0 && height > 0 ? { width, height } : undefined;
+}
+
 export class WindowsChemDrawRenderer {
-  async render(sourceAbsolutePath: string, directory: string): Promise<RenderResult> {
+  async render(sourceAbsolutePath: string, directory: string, target?: { width: number; height: number }): Promise<RenderResult> {
     const scriptPath = join(directory, "render.ps1");
     const outputPath = join(directory, "preview.png");
     await fs.writeFile(scriptPath, SCRIPT, "utf8");
     const raw = await new Promise<string>((resolve, reject) => {
       const { execFile } = require("child_process") as typeof import("child_process");
-      execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-STA", "-File", scriptPath, "-SourcePath", sourceAbsolutePath, "-OutputPath", outputPath], { windowsHide: true, timeout: 30000 }, (error, stdout, stderr) => error ? reject(new Error(stderr.trim() || error.message)) : resolve(stdout));
+      const args = ["-NoProfile", "-NonInteractive", "-STA", "-File", scriptPath, "-SourcePath", sourceAbsolutePath, "-OutputPath", outputPath];
+      if (target) args.push("-TargetWidth", String(target.width), "-TargetHeight", String(target.height));
+      execFile("powershell.exe", args, { windowsHide: true, timeout: 30000 }, (error, stdout, stderr) => error ? reject(new Error(stderr.trim() || error.message)) : resolve(stdout));
     });
     void raw;
     const data = new Uint8Array(await fs.readFile(outputPath));
@@ -60,4 +74,4 @@ export class WindowsChemDrawRenderer {
   }
 }
 
-export { isPng };
+export { getPngDimensions, isPng };
