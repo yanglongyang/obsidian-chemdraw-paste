@@ -1,4 +1,3 @@
-import { execFile } from "child_process";
 import type { ProviderProbeResult } from "../types";
 import { errorSummary } from "../utils/format";
 import { windowsFormatName } from "./windows-formats";
@@ -38,7 +37,8 @@ $result | ConvertTo-Json -Compress
 `;
 
 export class WindowsClipboardProvider {
-  constructor(private readonly platform = process.platform, private readonly execute = runPowerShell) {}
+  // Do not touch optional Node APIs while Obsidian is loading commands.
+  constructor(private readonly platform = typeof process === "undefined" ? "unknown" : process.platform, private readonly execute = runPowerShell) {}
 
   async probe(): Promise<ProviderProbeResult> {
     if (this.platform !== "win32") return { provider: { name: "Windows Native", available: false, capability: "Windows-only" }, formats: [] };
@@ -57,6 +57,9 @@ export class WindowsClipboardProvider {
 
 function runPowerShell(): Promise<NativeResponse> {
   return new Promise((resolve, reject) => {
+    // Some Electron renderer configurations do not expose child_process. Loading it
+    // lazily keeps the rest of the diagnostics and command registration available.
+    const { execFile } = require("child_process") as typeof import("child_process");
     execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", POWERSHELL_ENUMERATOR], { windowsHide: true, timeout: 3000, maxBuffer: 1024 * 1024 }, (error, stdout) => {
       if (error) return reject(error);
       try { resolve(JSON.parse(stdout) as NativeResponse); } catch { reject(new Error("Windows probe returned invalid metadata.")); }
