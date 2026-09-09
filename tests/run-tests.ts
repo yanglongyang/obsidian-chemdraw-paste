@@ -5,6 +5,7 @@ import { PasteEventProvider } from "../src/probe/paste-event-provider";
 import { windowsFormatName } from "../src/probe/windows-formats";
 import { formatBytes } from "../src/utils/format";
 import { getObsidianVersion, getRuntimeInfo } from "../src/utils/runtime";
+import { isChemDrawClipboard } from "../src/paste/chemdraw-detector";
 
 const tests: Array<[string, () => void | Promise<void>]> = [];
 const test = (name: string, fn: () => void | Promise<void>) => tests.push([name, fn]);
@@ -27,6 +28,13 @@ test("classification and conservative candidates", () => {
   assert.equal(isPreviewCandidate("image/png"), true);
   assert.equal(isPreviewCandidate("CF_ENHMETAFILE"), true);
   assert.equal(isPreviewCandidate("text/plain"), false);
+});
+
+test("smart paste detection is conservative", () => {
+  const event = (types: string[]) => ({ clipboardData: { types, items: types.map((type) => ({ type })) } }) as unknown as ClipboardEvent;
+  assert.equal(isChemDrawClipboard(event(["text/plain", "text/html"])), false);
+  assert.equal(isChemDrawClipboard(event(["ChemDraw Interchange Format"])), true);
+  assert.equal(isChemDrawClipboard(event(["application/x-cdxml"])), true);
 });
 
 test("merge retains every provider observation", () => {

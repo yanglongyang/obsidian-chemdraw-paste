@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { captureWindowsClipboard, readCaptured } from "./capture/windows-capture";
+import { isChemDrawClipboard } from "./paste/chemdraw-detector";
 import { mergeProbeResults } from "./probe/clipboard-probe";
 import { ElectronClipboardProvider } from "./probe/electron-provider";
 import { PasteEventProvider } from "./probe/paste-event-provider";
@@ -25,6 +26,15 @@ class ChemDrawPastePlugin extends Plugin {
     this.addRibbonIcon("flask-conical", "ChemDraw Paste: Inspect Clipboard", () => void this.inspectClipboard());
     this.addSettingTab(new ChemDrawPasteControlTab(this.app, this));
     this.register(() => this.pasteProvider.disarm());
+    const smartPasteListener = (event: ClipboardEvent) => {
+      // Detection is synchronous and happens before preventDefault. Unknown formats
+      // are returned untouched so Obsidian keeps its normal paste behavior.
+      if (!isChemDrawClipboard(event)) return;
+      event.preventDefault();
+      void this.importClipboardPreview();
+    };
+    window.addEventListener("paste", smartPasteListener, true);
+    this.register(() => window.removeEventListener("paste", smartPasteListener, true));
     new Notice("ChemDraw Paste: Clipboard Probe loaded. Use the ribbon flask icon or plugin settings if commands are not visible.");
   }
 
