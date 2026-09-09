@@ -109,7 +109,7 @@ class ChemDrawPastePlugin extends Plugin {
         const data = await readCaptured(source.path);
         if (source.format === "ChemDraw Interchange Format" && isValidCDX(data)) validSources.push({ data });
       }
-      if (target?.marker && validSources.length === 0) throw new Error("no valid ChemDraw CDX source was available");
+      if (validSources.length === 0) throw new Error("no valid ChemDraw CDX source was available");
       const capturedAt = new Date();
       const bundleRoot = await this.createUniqueBundlePath(capturedAt, createdFolders);
       const previewPath = `${bundleRoot}/preview.png`;
@@ -127,7 +127,7 @@ class ChemDrawPastePlugin extends Plugin {
       } else {
         view.editor.replaceSelection(markdown);
       }
-      new Notice(`ChemDraw Paste: inserted preview bundle ${bundleRoot}${sourcePaths.length ? " with editable CDX source" : ""}.`);
+      new Notice(`ChemDraw Paste: inserted preview bundle ${bundleRoot} with editable CDX source.`);
     } catch (error) {
       if (target?.marker) this.replaceMarker(view, target.marker, "");
       await this.rollbackCreatedAssets(createdFiles, createdFolders);
