@@ -19,7 +19,7 @@ public static class CDP {
  [DllImport("kernel32.dll")] public static extern bool GlobalUnlock(IntPtr h);
  [DllImport("kernel32.dll")] public static extern UIntPtr GlobalSize(IntPtr h);
  [DllImport("gdi32.dll")] public static extern IntPtr CopyEnhMetaFile(IntPtr h,string f);
- public static byte[] Read(uint f) { var h=GetClipboardData(f); if(h==IntPtr.Zero)return null; var n=(long)GlobalSize(h); if(n<1||n>104857600)return null; var p=GlobalLock(h); if(p==IntPtr.Zero)return null; try { var b=new byte[n]; Marshal.Copy(p,b,0,(int)n); return b; } finally { GlobalUnlock(h); } }
+ public static byte[] Read(uint f) { var h=GetClipboardData(f); if(h==IntPtr.Zero)return null; var n=(long)GlobalSize(h); if(n<1||n>104857600)return null; var p=GlobalLock(h); if(p==IntPtr.Zero)return null; try { var b=new byte[(int)n]; Marshal.Copy(p,b,0,(int)n); return b; } finally { GlobalUnlock(h); } }
  public static bool Png(string p) { var h=GetClipboardData(14); if(h==IntPtr.Zero)return false; var c=CopyEnhMetaFile(h,null); if(c==IntPtr.Zero)return false; using(var m=new Metafile(c,true)){ var r=m.GetBounds(ref UnsafeUnit); int w=Math.Max(1,Math.Min(4000,(int)Math.Ceiling(r.Width))); int h2=Math.Max(1,Math.Min(4000,(int)Math.Ceiling(r.Height))); using(var b=new Bitmap(w,h2)){ using(var g=Graphics.FromImage(b)){g.Clear(Color.White);g.DrawImage(m,0,0,w,h2);} b.Save(p,ImageFormat.Png); return true; } } }
  static GraphicsUnit UnsafeUnit=GraphicsUnit.Pixel;
 }
