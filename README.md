@@ -38,7 +38,7 @@ The report retains only format names, provider names, byte sizes when a runtime 
 - **ChemDraw Paste: Probe Next Paste** — arms exactly one paste listener. Return to a Markdown editor and paste normally; the plugin observes event metadata only and opens the report after Obsidian receives the paste.
 - **ChemDraw Paste: Show Last Diagnostic** — reopens the last in-memory report. Nothing survives a plugin reload.
 - **ChemDraw Paste: Import Clipboard Preview (experimental)** — explicitly captures `CF_ENHMETAFILE` plus the validated ChemDraw Interchange source, creates a paired `ChemDraw/YYYY-MM/CD-...-preview.png` and `CD-...-source.cdx`, and inserts the preview. It must be run from an open Markdown note.
-- **ChemDraw Paste: Refresh Current ChemDraw Preview** — with the cursor on a managed preview embed and an updated ChemDraw drawing on the clipboard, replaces the existing preview and CDX in place without changing the Markdown link or object ID.
+- **ChemDraw Paste: Refresh Current ChemDraw Preview** — with the cursor on a managed preview embed and an updated ChemDraw drawing on the clipboard, replaces only the existing preview in place. The paired CDX source, Markdown link, and object ID are left unchanged.
 
 Automatic preview refresh is enabled by default and can be disabled in settings. It watches only managed `*-source.cdx` files under the configured asset root, debounces ChemDraw saves, renders to a temporary PNG, validates it, and then updates the existing preview through the Obsidian Vault API. It never modifies the source CDX or the Markdown link. No Ctrl+C is required after editing when the verified local renderer is available.
 
