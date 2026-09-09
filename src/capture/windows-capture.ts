@@ -38,8 +38,9 @@ export async function captureWindowsClipboard(directory: string): Promise<Native
     execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-File", scriptPath, "-OutDir", directory], { windowsHide: true, timeout: 10000 }, (error, stdout, stderr) => error ? reject(new Error(stderr.trim() || error.message)) : resolve(stdout));
   });
   try {
-    const result = JSON.parse(raw) as { sources?: Array<{ format:string; file:string; sizeBytes:number }>; preview?: {format:string; file:string; sizeBytes:number} };
-    return { sources: (result.sources ?? []).map((x) => ({ ...x, path: join(directory, x.file) })), preview: result.preview ? { ...result.preview, path: join(directory, result.preview.file) } : undefined };
+    const result = JSON.parse(raw) as { sources?: { format:string; file:string; sizeBytes:number } | Array<{ format:string; file:string; sizeBytes:number }>; preview?: {format:string; file:string; sizeBytes:number} };
+    const sourceList = Array.isArray(result.sources) ? result.sources : result.sources ? [result.sources] : [];
+    return { sources: sourceList.map((x) => ({ ...x, path: join(directory, x.file) })), preview: result.preview ? { ...result.preview, path: join(directory, result.preview.file) } : undefined };
   } catch (error) { throw new Error(`Capture metadata error: ${errorSummary(error)}`); }
 }
 
