@@ -1,10 +1,12 @@
-import { App, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, TFolder } from "obsidian";
+import { App, FileSystemAdapter, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder } from "obsidian";
 import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { captureWindowsClipboard, readCaptured } from "./capture/windows-capture";
 import { isValidCDX } from "./capture/cdx";
 import { NativeClipboardMonitor } from "./capture/windows-clipboard-monitor";
+import { resolveChemDrawSourcePath } from "./interaction/preview-source";
+import { openSourceWithDefaultApp } from "./interaction/source-opener";
 import { isChemDrawClipboard } from "./paste/chemdraw-detector";
 import { mergeProbeResults } from "./probe/clipboard-probe";
 import { ElectronClipboardProvider } from "./probe/electron-provider";
@@ -64,6 +66,7 @@ class ChemDrawPastePlugin extends Plugin {
     };
     window.addEventListener("paste", smartPasteListener, true);
     this.register(() => window.removeEventListener("paste", smartPasteListener, true));
+    this.registerDomEvent(document, "dblclick", (event) => void this.handlePreviewDoubleClick(event));
     new Notice("ChemDraw Paste: Clipboard Probe loaded. Use the ribbon flask icon or plugin settings if commands are not visible.");
   }
 
@@ -191,6 +194,64 @@ class ChemDrawPastePlugin extends Plugin {
     const marker = `<!-- chemdraw-paste:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)} -->`;
     view.editor.replaceSelection(marker);
     return { view, marker };
+  }
+
+  private async handlePreviewDoubleClick(event: MouseEvent): Promise<void> {
+    const image = this.imageFromEvent(event);
+    if (!image) return;
+    const previewPath = this.resolveImageVaultPath(image);
+    if (!previewPath) return;
+    const sourcePath = resolveChemDrawSourcePath(previewPath, this.getAssetFolder());
+    if (!sourcePath) return;
+    event.preventDefault();
+    const source = this.app.vault.getAbstractFileByPath(sourcePath);
+    if (!(source instanceof TFile)) {
+      new Notice("ChemDraw Paste: Paired source.cdx is missing or invalid.");
+      return;
+    }
+    try {
+      const data = await this.app.vault.readBinary(source);
+      if (!isValidCDX(data)) {
+        new Notice("ChemDraw Paste: Paired source.cdx is missing or invalid.");
+        return;
+      }
+      const adapter = this.app.vault.adapter;
+      if (!(adapter instanceof FileSystemAdapter)) throw new Error("the current vault adapter does not expose a local file path");
+      await openSourceWithDefaultApp(adapter.getFullPath(sourcePath));
+    } catch (error) {
+      new Notice(`ChemDraw Paste: Could not open the CDX source with the default Windows application.${error instanceof Error ? ` ${error.message}` : ""}`);
+    }
+  }
+
+  private imageFromEvent(event: MouseEvent): HTMLImageElement | null {
+    const target = event.target;
+    if (target instanceof HTMLImageElement) return target;
+    return target instanceof HTMLElement ? target.closest("img") : null;
+  }
+
+  private resolveImageVaultPath(image: HTMLImageElement): string | undefined {
+    const candidates: string[] = [];
+    let node: HTMLElement | null = image;
+    for (let depth = 0; node && depth < 5; depth += 1, node = node.parentElement) {
+      for (const attribute of ["data-path", "data-src", "href"]) {
+        const value = node.getAttribute(attribute);
+        if (value) candidates.push(value);
+      }
+    }
+    const alt = image.getAttribute("alt");
+    if (alt) candidates.push(alt);
+    for (const candidate of candidates) {
+      const file = this.app.vault.getAbstractFileByPath(candidate.replace(/\\/g, "/"));
+      if (file instanceof TFile) return file.path;
+    }
+    const src = image.getAttribute("src");
+    if (!src) return undefined;
+    const normalizedSrc = src.split(/[?#]/, 1)[0];
+    for (const file of this.app.vault.getFiles()) {
+      const resource = this.app.vault.getResourcePath(file).split(/[?#]/, 1)[0];
+      if (resource === normalizedSrc) return file.path;
+    }
+    return undefined;
   }
 
   private replaceMarker(view: MarkdownView, marker: string, replacement: string): boolean {

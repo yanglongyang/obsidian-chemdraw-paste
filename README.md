@@ -1,6 +1,8 @@
-# ChemDraw Paste — Clipboard Probe v0.1.0
+# ChemDraw Paste — v0.2.1 Preview Interaction Closure
 
 `ChemDraw Paste` is a standalone Obsidian Desktop clipboard probe with an experimental import MVP and conservative Windows Smart Paste. Confirmed ChemDraw Interchange data is validated and stored as a `.cdx` sidecar.
+
+Normal workflow: ChemDraw Ctrl+C → Obsidian Ctrl+V → paired monthly preview/source files → double-click the managed preview to open its editable CDX through the Windows default application. No OLE or embedded ChemDraw editor is used; ordinary images remain unaffected.
 
 ## What it does
 

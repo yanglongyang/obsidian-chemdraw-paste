@@ -9,6 +9,8 @@ import { isChemDrawClipboard } from "../src/paste/chemdraw-detector";
 import { parseNativeClipboardStateLine } from "../src/capture/windows-clipboard-monitor";
 import { isValidCDX } from "../src/capture/cdx";
 import { chemDrawMonthFolder, makeChemDrawBundleId, normalizeChemDrawAssetFolder } from "../src/utils/vault-path";
+import { resolveChemDrawSourcePath } from "../src/interaction/preview-source";
+import { openSourceWithDefaultApp } from "../src/interaction/source-opener";
 
 const tests: Array<[string, () => void | Promise<void>]> = [];
 const test = (name: string, fn: () => void | Promise<void>) => tests.push([name, fn]);
@@ -67,6 +69,24 @@ test("ChemDraw asset folders stay Vault-relative and bundle IDs are stable", () 
   const date = new Date(2026, 8, 9, 22, 29, 1);
   assert.equal(chemDrawMonthFolder(date), "2026-09");
   assert.equal(makeChemDrawBundleId(date, 0), "CD-20260909-222901-0000");
+});
+
+test("managed preview resolver pairs only the current flat storage model", () => {
+  assert.equal(resolveChemDrawSourcePath("ChemDraw/2026-09/CD-A-preview.png", "ChemDraw"), "ChemDraw/2026-09/CD-A-source.cdx");
+  assert.equal(resolveChemDrawSourcePath("png/a.png", "ChemDraw"), null);
+  assert.equal(resolveChemDrawSourcePath("Other/2026-09/CD-A-preview.png", "ChemDraw"), null);
+  assert.equal(resolveChemDrawSourcePath("ChemDraw/2026-09/foo-preview.png", "ChemDraw"), null);
+  assert.equal(resolveChemDrawSourcePath("ChemDraw/2026-09/CD-A-preview.png", "ChemDraw"), "ChemDraw/2026-09/CD-A-source.cdx");
+  assert.equal(resolveChemDrawSourcePath("ChemDraw/2026-09/CD-B-preview.png", "ChemDraw"), "ChemDraw/2026-09/CD-B-source.cdx");
+  assert.equal(resolveChemDrawSourcePath("assets\\ChemDraw\\2026-09\\CD-A-preview.png", "assets/ChemDraw"), "assets/ChemDraw/2026-09/CD-A-source.cdx");
+  assert.equal(resolveChemDrawSourcePath("ChemDraw/2026-09/CD-OLD/preview.png", "ChemDraw"), null);
+});
+
+test("default-app opener reports injected failures predictably", async () => {
+  await assert.rejects(
+    () => openSourceWithDefaultApp("C:\\Vault\\ChemDraw\\source.cdx", async () => { throw new Error("association missing"); }),
+    /could not open the CDX source/,
+  );
 });
 
 test("merge retains every provider observation", () => {

@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.1 — Preview Interaction Closure
+
+### Added
+
+- Double-click managed flat-pair ChemDraw previews to open their paired CDX source with the Windows default application.
+- Preview/source resolution based on the shared object ID, configured asset root, and monthly storage path.
+- Source existence and CDX validation before opening.
+
+### Preserved
+
+- Direct Smart Paste and native clipboard monitoring.
+- Monthly flat asset storage and configurable ChemDraw asset root.
+- Ordinary non-ChemDraw paste behavior.
+- No OLE, embedded editor, or ChemDraw executable path hardcoding.
+
 ## 0.1.0 — Clipboard Probe
 
 ### Added
