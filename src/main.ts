@@ -1,4 +1,8 @@
-import { App, Notice, Plugin, PluginSettingTab, Setting } from "obsidian";
+import { App, MarkdownView, Notice, Plugin, PluginSettingTab, Setting } from "obsidian";
+import { mkdtemp, rm } from "fs/promises";
+import { tmpdir } from "os";
+import { join } from "path";
+import { captureWindowsClipboard, readCaptured } from "./capture/windows-capture";
 import { mergeProbeResults } from "./probe/clipboard-probe";
 import { ElectronClipboardProvider } from "./probe/electron-provider";
 import { PasteEventProvider } from "./probe/paste-event-provider";
@@ -17,6 +21,7 @@ class ChemDrawPastePlugin extends Plugin {
     this.addCommand({ id: "inspect-clipboard", name: "Inspect Clipboard", callback: () => this.inspectClipboard() });
     this.addCommand({ id: "probe-next-paste", name: "Probe Next Paste", callback: () => this.armNextPaste() });
     this.addCommand({ id: "show-last-diagnostic", name: "Show Last Diagnostic", callback: () => this.showLastDiagnostic() });
+    this.addCommand({ id: "import-clipboard-preview", name: "Import Clipboard Preview (experimental)", callback: () => this.importClipboardPreview() });
     this.addRibbonIcon("flask-conical", "ChemDraw Paste: Inspect Clipboard", () => void this.inspectClipboard());
     this.addSettingTab(new ChemDrawPasteControlTab(this.app, this));
     this.register(() => this.pasteProvider.disarm());
@@ -45,6 +50,27 @@ class ChemDrawPastePlugin extends Plugin {
   showLastDiagnostic(): void {
     if (!this.lastReport) return void new Notice("ChemDraw Paste: no in-memory diagnostic is available yet.");
     new ClipboardProbeModal(this.app, this.lastReport).open();
+  }
+
+  async importClipboardPreview(): Promise<void> {
+    if (process.platform !== "win32") return void new Notice("ChemDraw Paste: experimental import is currently Windows-only.");
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view?.file || !view.editor) return void new Notice("ChemDraw Paste: open a Markdown note before importing.");
+    const stage = await mkdtemp(join(tmpdir(), "chemdraw-paste-"));
+    try {
+      const captured = await captureWindowsClipboard(stage);
+      if (!captured.preview) return void new Notice("ChemDraw Paste: no CF_ENHMETAFILE preview was available.");
+      const previewPath = await this.app.fileManager.getAvailablePathForAttachment("chemdraw-preview.png", view.file.path);
+      await this.app.vault.createBinary(previewPath, await readCaptured(captured.preview.path));
+      const sourcePaths: string[] = [];
+      for (const source of captured.sources) {
+        const path = await this.app.fileManager.getAvailablePathForAttachment(`chemdraw-${source.format.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.bin`, view.file.path);
+        await this.app.vault.createBinary(path, await readCaptured(source.path)); sourcePaths.push(path);
+      }
+      view.editor.replaceSelection(`![[${previewPath}]]${sourcePaths.length ? `\n\nChemDraw source candidates: ${sourcePaths.map((path) => `[[${path}]]`).join(" ")}` : ""}`);
+      new Notice(`ChemDraw Paste: inserted preview and saved ${sourcePaths.length} source candidate(s).`);
+    } catch (error) { new Notice(`ChemDraw Paste import failed: ${error instanceof Error ? error.message : "unknown error"}`); }
+    finally { await rm(stage, { recursive: true, force: true }); }
   }
 
   private async createReport(pasteResult?: ProviderProbeResult): Promise<ProbeReport> {
@@ -76,6 +102,10 @@ class ChemDrawPasteControlTab extends PluginSettingTab {
       .setName("Probe next paste")
       .setDesc("Arm one normal paste. The next Ctrl+V is observed but never blocked.")
       .addButton((button) => button.setButtonText("Arm Next Paste").onClick(() => this.plugin.armNextPaste()));
+    new Setting(containerEl)
+      .setName("Import clipboard preview (experimental)")
+      .setDesc("Writes an EMF-derived PNG and raw ChemDraw source candidates, then inserts Markdown. Use only after copying from ChemDraw.")
+      .addButton((button) => button.setButtonText("Import Preview").setWarning().onClick(() => void this.plugin.importClipboardPreview()));
     new Setting(containerEl)
       .setName("Show last diagnostic")
       .setDesc("Reopen the latest in-memory report; no data is saved to disk.")
