@@ -5,7 +5,9 @@ export type DefaultAppRunner = (absolutePath: string) => Promise<void>;
 async function runWindowsDefaultApp(absolutePath: string): Promise<void> {
   const { execFile } = require("child_process") as typeof import("child_process");
   await new Promise<void>((resolve, reject) => {
-    const command = "Start-Process -LiteralPath $env:CHEMDRAW_PASTE_SOURCE -ErrorAction Stop";
+    // Windows PowerShell supports -FilePath across the versions shipped with
+    // Obsidian. The path stays in an environment variable, never in command text.
+    const command = "Start-Process -FilePath $env:CHEMDRAW_PASTE_SOURCE -ErrorAction Stop";
     const env = { ...process.env, CHEMDRAW_PASTE_SOURCE: absolutePath };
     execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], { windowsHide: true, timeout: 10000, env }, (error, _stdout, stderr) => {
       if (error) reject(new Error(stderr.trim() || error.message));
