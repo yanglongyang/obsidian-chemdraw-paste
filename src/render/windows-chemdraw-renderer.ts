@@ -30,7 +30,12 @@ try {
     $graphics.Clear([System.Drawing.Color]::White)
     $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
     $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-    $graphics.DrawImage($bitmapIn, 0, 0, $targetWidth, $targetHeight)
+    $scale = [Math]::Min($targetWidth / [double]$bitmapIn.Width, $targetHeight / [double]$bitmapIn.Height)
+    $drawWidth = [Math]::Max(1, [int][Math]::Round($bitmapIn.Width * $scale))
+    $drawHeight = [Math]::Max(1, [int][Math]::Round($bitmapIn.Height * $scale))
+    $offsetX = [int][Math]::Floor(($targetWidth - $drawWidth) / 2)
+    $offsetY = [int][Math]::Floor(($targetHeight - $drawHeight) / 2)
+    $graphics.DrawImage($bitmapIn, $offsetX, $offsetY, $drawWidth, $drawHeight)
     $bitmapOut.Save($OutputPath, [System.Drawing.Imaging.ImageFormat]::Png)
   } finally {
     $graphics.Dispose(); $bitmapOut.Dispose(); $bitmapIn.Dispose()
@@ -49,11 +54,11 @@ function isPng(data: Uint8Array): boolean {
 }
 
 function getPngDimensions(data: Uint8Array): { width: number; height: number } | undefined {
-  if (!isPng(data) || data.length < 24) return undefined;
+  if (!isPng(data) || data.length < 24 || String.fromCharCode(...data.slice(12, 16)) !== "IHDR") return undefined;
   const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
   const width = view.getUint32(16, false);
   const height = view.getUint32(20, false);
-  return width > 0 && height > 0 ? { width, height } : undefined;
+  return width > 0 && height > 0 && width <= 16384 && height <= 16384 ? { width, height } : undefined;
 }
 
 export class WindowsChemDrawRenderer {

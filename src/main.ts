@@ -1,5 +1,5 @@
 import { App, FileSystemAdapter, MarkdownView, Menu, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder } from "obsidian";
-import { mkdtemp, rm } from "fs/promises";
+import { mkdtemp, rm, writeFile } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { captureWindowsClipboard, readCaptured } from "./capture/windows-capture";
@@ -17,6 +17,7 @@ import { getObsidianVersion, getRuntimeInfo } from "./utils/runtime";
 import { chemDrawMonthFolder, makeChemDrawBundleId, normalizeChemDrawAssetFolder } from "./utils/vault-path";
 import { ClipboardProbeModal } from "./ui/probe-modal";
 import { WindowsChemDrawRenderer, getPngDimensions, isPng } from "./render/windows-chemdraw-renderer";
+import { SerialRefreshQueue } from "./refresh/serial-refresh-queue";
 
 interface PasteTarget {
   view: MarkdownView;
@@ -44,6 +45,10 @@ class ChemDrawPastePlugin extends Plugin {
   private readonly renderer = new WindowsChemDrawRenderer();
   private pluginSettings: ChemDrawPasteSettings = { ...DEFAULT_SETTINGS };
   private readonly refreshStates = new Map<string, RefreshState>();
+  private readonly automaticRefreshQueue = new SerialRefreshQueue(async (sourcePath) => {
+    const state = this.refreshStates.get(sourcePath);
+    if (state) await this.processAutomaticRefresh(sourcePath, state);
+  });
   private lastReport?: ProbeReport;
 
   async onload(): Promise<void> {
@@ -90,6 +95,7 @@ class ChemDrawPastePlugin extends Plugin {
     this.nativeClipboardMonitor.stop();
     for (const state of this.refreshStates.values()) if (state.timer) clearTimeout(state.timer);
     this.refreshStates.clear();
+    this.automaticRefreshQueue.clear();
   }
 
   async inspectClipboard(): Promise<void> {
@@ -172,27 +178,15 @@ class ChemDrawPastePlugin extends Plugin {
       const captured = await captureWindowsClipboard(stage);
       if (!captured.preview) throw new Error("no CF_ENHMETAFILE preview was available");
       const previewData = await readCaptured(captured.preview.path);
-      let sourceData: ArrayBuffer | undefined;
-      for (const source of captured.sources) {
-        const data = await readCaptured(source.path);
-        if (source.format === "ChemDraw Interchange Format" && isValidCDX(data)) { sourceData = data; break; }
-      }
-      if (!sourceData) throw new Error("no valid ChemDraw CDX source was available");
       const oldPreview = await this.app.vault.readBinary(previewFile);
-      const oldSource = await this.app.vault.readBinary(sourceFile);
-      let previewChanged = false;
-      let sourceChangeAttempted = false;
       try {
         await this.app.vault.modifyBinary(previewFile, previewData);
-        previewChanged = true;
-        sourceChangeAttempted = true;
-        await this.app.vault.modifyBinary(sourceFile, sourceData);
       } catch (error) {
-        if (sourceChangeAttempted) await this.app.vault.modifyBinary(sourceFile, oldSource).catch(() => undefined);
-        if (previewChanged) await this.app.vault.modifyBinary(previewFile, oldPreview).catch(() => undefined);
+        await this.app.vault.modifyBinary(previewFile, oldPreview).catch(() => undefined);
         throw error;
       }
-      new Notice("ChemDraw Paste: updated the selected preview and CDX source.");
+      this.refreshRenderedPreviews(previewPath);
+      new Notice("ChemDraw Paste: updated the selected preview; source.cdx was left unchanged.");
     } catch (error) {
       new Notice(`ChemDraw Paste refresh failed: ${error instanceof Error ? error.message : "unknown error"}`);
     } finally {
@@ -207,7 +201,7 @@ class ChemDrawPastePlugin extends Plugin {
     if (!previewPath || !resolveChemDrawSourcePath(previewPath, this.getAssetFolder())) return;
     event.preventDefault();
     const menu = new Menu();
-    menu.addItem((item) => item.setTitle("Refresh from ChemDraw Clipboard").setIcon("refresh-cw").onClick(() => void this.refreshChemDrawPreviewPath(previewPath)));
+    menu.addItem((item) => item.setTitle("Refresh Preview from ChemDraw Clipboard").setIcon("refresh-cw").onClick(() => void this.refreshChemDrawPreviewPath(previewPath)));
     menu.showAtMouseEvent(event);
   }
 
@@ -228,6 +222,7 @@ class ChemDrawPastePlugin extends Plugin {
     this.pluginSettings.autoRefresh = value;
     await this.saveData(this.pluginSettings);
     if (value) void this.reconcileStalePreviews();
+    else this.automaticRefreshQueue.clear();
   }
 
   getAutoRefresh(): boolean { return this.pluginSettings.autoRefresh; }
@@ -240,16 +235,25 @@ class ChemDrawPastePlugin extends Plugin {
     if (state.timer) clearTimeout(state.timer);
     state.timer = setTimeout(() => {
       state.timer = undefined;
-      void this.processAutomaticRefresh(sourcePath, state);
+      this.enqueueAutomaticRefresh(sourcePath, state);
     }, delay);
+  }
+
+  private enqueueAutomaticRefresh(sourcePath: string, state: RefreshState): void {
+    if (!this.pluginSettings.autoRefresh) return;
+    if (state.running) { state.pending = true; return; }
+    this.automaticRefreshQueue.enqueue(sourcePath);
   }
 
   private async processAutomaticRefresh(sourcePath: string, state: RefreshState): Promise<void> {
     if (state.running || !this.pluginSettings.autoRefresh) return;
     state.running = true;
-    const stage = await mkdtemp(join(tmpdir(), "chemdraw-render-"));
+    let stage: string | undefined;
     try {
+      stage = await mkdtemp(join(tmpdir(), "chemdraw-render-"));
       const stable = await this.readStableCDX(sourcePath);
+      const stableSourcePath = join(stage, "source.cdx");
+      await writeFile(stableSourcePath, new Uint8Array(stable));
       const previewPath = resolveChemDrawPreviewPath(sourcePath, this.getAssetFolder());
       if (!previewPath) return;
       const adapter = this.app.vault.adapter;
@@ -257,19 +261,18 @@ class ChemDrawPastePlugin extends Plugin {
       const preview = this.app.vault.getAbstractFileByPath(previewPath);
       const previousPreview = preview instanceof TFile ? await this.app.vault.readBinary(preview) : undefined;
       const targetSize = previousPreview ? getPngDimensions(new Uint8Array(previousPreview)) : undefined;
-      const rendered = await this.renderer.render(adapter.getFullPath(sourcePath), stage, targetSize);
+      const rendered = await this.renderer.render(stableSourcePath, stage, targetSize);
       const image = await readCaptured(rendered.outputPath);
       if (!isPng(new Uint8Array(image)) || image.byteLength < 128) throw new Error("renderer output failed PNG validation");
       if (preview instanceof TFile) await this.app.vault.modifyBinary(preview, image);
       else await this.app.vault.createBinary(previewPath, image);
       this.refreshRenderedPreviews(previewPath);
-      void stable;
       console.debug("[ChemDraw Paste] automatic preview refresh", { sourcePath, previewPath, backend: rendered.backend, sizeBytes: rendered.sizeBytes });
     } catch (error) {
       new Notice(`ChemDraw Paste: Automatic preview refresh failed for ${sourcePath.split("/").pop() ?? "source"}.`);
       console.debug("[ChemDraw Paste] automatic preview refresh failed", { sourcePath, error: error instanceof Error ? error.message : String(error) });
     } finally {
-      await rm(stage, { recursive: true, force: true });
+      if (stage) await rm(stage, { recursive: true, force: true });
       state.running = false;
       if (state.pending) {
         state.pending = false;

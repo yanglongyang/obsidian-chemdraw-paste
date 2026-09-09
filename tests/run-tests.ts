@@ -11,7 +11,8 @@ import { isValidCDX } from "../src/capture/cdx";
 import { chemDrawMonthFolder, makeChemDrawBundleId, normalizeChemDrawAssetFolder } from "../src/utils/vault-path";
 import { managedPreviewPathFromMarkdownLine, resolveChemDrawPreviewPath, resolveChemDrawSourcePath } from "../src/interaction/preview-source";
 import { openSourceWithDefaultApp } from "../src/interaction/source-opener";
-import { isPng } from "../src/render/windows-chemdraw-renderer";
+import { getPngDimensions, isPng } from "../src/render/windows-chemdraw-renderer";
+import { SerialRefreshQueue } from "../src/refresh/serial-refresh-queue";
 
 const tests: Array<[string, () => void | Promise<void>]> = [];
 const test = (name: string, fn: () => void | Promise<void>) => tests.push([name, fn]);
@@ -93,6 +94,34 @@ test("PNG validator accepts the PNG signature and rejects arbitrary bytes", () =
   const png = new Uint8Array(128); png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   assert.equal(isPng(png), true);
   assert.equal(isPng(new Uint8Array(128)), false);
+});
+
+test("PNG dimensions read only a bounded IHDR", () => {
+  const png = new Uint8Array(32); png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  png.set([0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 2, 0, 0, 0, 1, 99], 8);
+  assert.deepEqual(getPngDimensions(png), { width: 512, height: 355 });
+  png[16] = 0xff; png[17] = 0xff; png[18] = 0xff; png[19] = 0xff;
+  assert.equal(getPngDimensions(png), undefined);
+});
+
+test("automatic refresh queue serializes renders and de-duplicates stale paths", async () => {
+  const events: string[] = [];
+  let releaseFirst!: () => void;
+  const firstDone = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  const queue = new SerialRefreshQueue(async (key) => {
+    events.push(`start:${key}`);
+    if (key === "first") await firstDone;
+    events.push(`end:${key}`);
+  });
+  queue.enqueue("first");
+  queue.enqueue("second");
+  queue.enqueue("second");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(events, ["start:first"]);
+  releaseFirst();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(events, ["start:first", "end:first", "start:second", "end:second"]);
 });
 
 test("default-app opener reports injected failures predictably", async () => {
