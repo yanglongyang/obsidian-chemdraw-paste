@@ -25,7 +25,7 @@ public static class CDP {
 }
 '@
 $items=@(); if(-not [CDP]::OpenClipboard([IntPtr]::Zero)){throw 'OpenClipboard failed'}
-try { foreach($x in @(@('ChemDraw Interchange Format','source.cdx'))){$b=[CDP]::Read([CDP]::RegisterClipboardFormat($x[0]));if($null -ne $b){$p=Join-Path $OutDir $x[1];[IO.File]::WriteAllBytes($p,$b);$items += @{format=$x[0];file=$x[1];sizeBytes=$b.Length}}}; $png=Join-Path $OutDir 'preview.png';$has=[CDP]::Png($png) } finally {[void][CDP]::CloseClipboard()}
+try { $png=Join-Path $OutDir 'preview.png';$has=[CDP]::Png($png); foreach($x in @(@('ChemDraw Interchange Format','source.cdx'))){$b=[CDP]::Read([CDP]::RegisterClipboardFormat($x[0]));if($null -ne $b){$p=Join-Path $OutDir $x[1];[IO.File]::WriteAllBytes($p,$b);$items += @{format=$x[0];file=$x[1];sizeBytes=$b.Length}}} } finally {[void][CDP]::CloseClipboard()}
 @{sources=$items;preview=if($has){@{format='CF_ENHMETAFILE';file='preview.png';sizeBytes=(Get-Item $png).Length}}else{$null}}|ConvertTo-Json -Compress
 `;
 
