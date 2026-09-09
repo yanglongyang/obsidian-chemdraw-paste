@@ -4,7 +4,7 @@ import { classifyFormat, isPotentialChemDrawFormat, isPreviewCandidate } from ".
 import { PasteEventProvider } from "../src/probe/paste-event-provider";
 import { windowsFormatName } from "../src/probe/windows-formats";
 import { formatBytes } from "../src/utils/format";
-import { getRuntimeInfo } from "../src/utils/runtime";
+import { getObsidianVersion, getRuntimeInfo } from "../src/utils/runtime";
 
 const tests: Array<[string, () => void | Promise<void>]> = [];
 const test = (name: string, fn: () => void | Promise<void>) => tests.push([name, fn]);
@@ -44,6 +44,11 @@ test("runtime metadata falls back safely", () => {
   assert.equal(runtime.obsidianVersion, "unknown");
   assert.equal(runtime.electronVersion, "unknown");
   assert.equal(runtime.nodeVersion, "unknown");
+});
+
+test("Obsidian version accepts direct app metadata and safely falls back", () => {
+  assert.equal(getObsidianVersion({ appVersion: "1.13.7" }, { versions: {} }), "1.13.7");
+  assert.equal(getObsidianVersion({}, { versions: {} }), "unknown");
 });
 
 test("Windows standard and registered names are mapped", () => {

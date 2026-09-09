@@ -4,7 +4,7 @@ import { ElectronClipboardProvider } from "./probe/electron-provider";
 import { PasteEventProvider } from "./probe/paste-event-provider";
 import { WindowsClipboardProvider } from "./probe/windows-provider";
 import type { ProbeReport, ProviderProbeResult } from "./types";
-import { getRuntimeInfo } from "./utils/runtime";
+import { getObsidianVersion, getRuntimeInfo } from "./utils/runtime";
 import { ClipboardProbeModal } from "./ui/probe-modal";
 
 class ChemDrawPastePlugin extends Plugin {
@@ -50,7 +50,7 @@ class ChemDrawPastePlugin extends Plugin {
   private async createReport(pasteResult?: ProviderProbeResult): Promise<ProbeReport> {
     const [electron, pasteIdle, windows] = await Promise.all([this.electronProvider.probe(), this.pasteProvider.probe(), this.windowsProvider.probe()]);
     const results = [electron, pasteResult ?? pasteIdle, windows];
-    return { runtime: getRuntimeInfo((this.app as unknown as { version?: string }).version ?? "unknown"), providers: results.map((result) => result.provider), formats: mergeProbeResults(results), timestamp: new Date() };
+    return { runtime: getRuntimeInfo(getObsidianVersion(this.app)), providers: results.map((result) => result.provider), formats: mergeProbeResults(results), timestamp: new Date() };
   }
 
   private safeDebug(report: ProbeReport): void {
