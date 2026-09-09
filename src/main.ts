@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { captureWindowsClipboard, readCaptured } from "./capture/windows-capture";
+import { NativeClipboardMonitor } from "./capture/windows-clipboard-monitor";
 import { isChemDrawClipboard } from "./paste/chemdraw-detector";
 import { mergeProbeResults } from "./probe/clipboard-probe";
 import { ElectronClipboardProvider } from "./probe/electron-provider";
@@ -12,10 +13,16 @@ import type { ProbeReport, ProviderProbeResult } from "./types";
 import { getObsidianVersion, getRuntimeInfo } from "./utils/runtime";
 import { ClipboardProbeModal } from "./ui/probe-modal";
 
+interface PasteTarget {
+  view: MarkdownView;
+  marker?: string;
+}
+
 class ChemDrawPastePlugin extends Plugin {
   private readonly electronProvider = new ElectronClipboardProvider();
   private readonly pasteProvider = new PasteEventProvider();
   private readonly windowsProvider = new WindowsClipboardProvider();
+  private readonly nativeClipboardMonitor = new NativeClipboardMonitor();
   private lastReport?: ProbeReport;
 
   async onload(): Promise<void> {
@@ -26,19 +33,29 @@ class ChemDrawPastePlugin extends Plugin {
     this.addRibbonIcon("flask-conical", "ChemDraw Paste: Inspect Clipboard", () => void this.inspectClipboard());
     this.addSettingTab(new ChemDrawPasteControlTab(this.app, this));
     this.register(() => this.pasteProvider.disarm());
+    void this.nativeClipboardMonitor.start();
+    this.register(() => this.nativeClipboardMonitor.stop());
     const smartPasteListener = (event: ClipboardEvent) => {
-      // Detection is synchronous and happens before preventDefault. Unknown formats
-      // are returned untouched so Obsidian keeps its normal paste behavior.
-      if (!isChemDrawClipboard(event)) return;
+      // The browser fast path covers formats Chromium exposes. The native cache
+      // covers Windows registered formats hidden from ClipboardEvent. Both checks
+      // are synchronous; an unknown/unavailable state always fails open.
+      const browserDetected = isChemDrawClipboard(event);
+      const nativeDetected = this.nativeClipboardMonitor.getState().available && this.nativeClipboardMonitor.getState().hasChemDraw;
+      if (!browserDetected && !nativeDetected) return;
+      const target = this.capturePasteTarget();
+      if (!target) return;
       event.preventDefault();
-      void this.importClipboardPreview();
+      void this.importClipboardPreview(target);
     };
     window.addEventListener("paste", smartPasteListener, true);
     this.register(() => window.removeEventListener("paste", smartPasteListener, true));
     new Notice("ChemDraw Paste: Clipboard Probe loaded. Use the ribbon flask icon or plugin settings if commands are not visible.");
   }
 
-  onunload(): void { this.pasteProvider.disarm(); }
+  onunload(): void {
+    this.pasteProvider.disarm();
+    this.nativeClipboardMonitor.stop();
+  }
 
   async inspectClipboard(): Promise<void> {
     const report = await this.createReport();
@@ -62,14 +79,14 @@ class ChemDrawPastePlugin extends Plugin {
     new ClipboardProbeModal(this.app, this.lastReport).open();
   }
 
-  async importClipboardPreview(): Promise<void> {
+  async importClipboardPreview(target?: PasteTarget): Promise<void> {
     if (process.platform !== "win32") return void new Notice("ChemDraw Paste: experimental import is currently Windows-only.");
-    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    const view = target?.view ?? this.app.workspace.getActiveViewOfType(MarkdownView);
     if (!view?.file || !view.editor) return void new Notice("ChemDraw Paste: open a Markdown note before importing.");
     const stage = await mkdtemp(join(tmpdir(), "chemdraw-paste-"));
     try {
       const captured = await captureWindowsClipboard(stage);
-      if (!captured.preview) return void new Notice("ChemDraw Paste: no CF_ENHMETAFILE preview was available.");
+      if (!captured.preview) throw new Error("no CF_ENHMETAFILE preview was available");
       const previewPath = await this.app.fileManager.getAvailablePathForAttachment("chemdraw-preview.png", view.file.path);
       await this.app.vault.createBinary(previewPath, await readCaptured(captured.preview.path));
       const sourcePaths: string[] = [];
@@ -77,10 +94,43 @@ class ChemDrawPastePlugin extends Plugin {
         const path = await this.app.fileManager.getAvailablePathForAttachment(`chemdraw-${source.format.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.bin`, view.file.path);
         await this.app.vault.createBinary(path, await readCaptured(source.path)); sourcePaths.push(path);
       }
-      view.editor.replaceSelection(`![[${previewPath}]]${sourcePaths.length ? `\n\nChemDraw source candidates: ${sourcePaths.map((path) => `[[${path}]]`).join(" ")}` : ""}`);
+      const markdown = `![[${previewPath}]]${sourcePaths.length ? `\n\nChemDraw source candidates: ${sourcePaths.map((path) => `[[${path}]]`).join(" ")}` : ""}`;
+      if (target?.marker) {
+        if (!this.replaceMarker(view, target.marker, markdown)) throw new Error("paste target was removed before import completed");
+      } else {
+        view.editor.replaceSelection(markdown);
+      }
       new Notice(`ChemDraw Paste: inserted preview and saved ${sourcePaths.length} source candidate(s).`);
-    } catch (error) { new Notice(`ChemDraw Paste import failed: ${error instanceof Error ? error.message : "unknown error"}`); }
+    } catch (error) {
+      if (target?.marker) this.replaceMarker(view, target.marker, "");
+      new Notice(`ChemDraw Paste import failed: ${error instanceof Error ? error.message : "unknown error"}`);
+    }
     finally { await rm(stage, { recursive: true, force: true }); }
+  }
+
+  private capturePasteTarget(): PasteTarget | undefined {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view?.file || !view.editor) return undefined;
+    const marker = `<!-- chemdraw-paste:${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)} -->`;
+    view.editor.replaceSelection(marker);
+    return { view, marker };
+  }
+
+  private replaceMarker(view: MarkdownView, marker: string, replacement: string): boolean {
+    const editor = view.editor;
+    const value = editor.getValue();
+    const offset = value.indexOf(marker);
+    if (offset < 0) return false;
+    const start = this.offsetToPosition(value, offset);
+    const end = this.offsetToPosition(value, offset + marker.length);
+    editor.replaceRange(replacement, start, end);
+    return true;
+  }
+
+  private offsetToPosition(value: string, offset: number): { line: number; ch: number } {
+    const prefix = value.slice(0, offset);
+    const lines = prefix.split("\n");
+    return { line: lines.length - 1, ch: lines[lines.length - 1].length };
   }
 
   private async createReport(pasteResult?: ProviderProbeResult): Promise<ProbeReport> {
@@ -114,7 +164,7 @@ class ChemDrawPasteControlTab extends PluginSettingTab {
       .addButton((button) => button.setButtonText("Arm Next Paste").onClick(() => this.plugin.armNextPaste()));
     new Setting(containerEl)
       .setName("Import clipboard preview (experimental)")
-      .setDesc("Writes an EMF-derived PNG and raw ChemDraw source candidates, then inserts Markdown. Use only after copying from ChemDraw.")
+      .setDesc("Ctrl+V is intercepted only when the native Windows clipboard cache confirms ChemDraw. A manual import writes an EMF-derived PNG and raw source candidates.")
       .addButton((button) => button.setButtonText("Import Preview").setWarning().onClick(() => void this.plugin.importClipboardPreview()));
     new Setting(containerEl)
       .setName("Show last diagnostic")

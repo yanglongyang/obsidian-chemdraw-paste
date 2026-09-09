@@ -6,6 +6,7 @@ import { windowsFormatName } from "../src/probe/windows-formats";
 import { formatBytes } from "../src/utils/format";
 import { getObsidianVersion, getRuntimeInfo } from "../src/utils/runtime";
 import { isChemDrawClipboard } from "../src/paste/chemdraw-detector";
+import { parseNativeClipboardStateLine } from "../src/capture/windows-clipboard-monitor";
 
 const tests: Array<[string, () => void | Promise<void>]> = [];
 const test = (name: string, fn: () => void | Promise<void>) => tests.push([name, fn]);
@@ -35,6 +36,16 @@ test("smart paste detection is conservative", () => {
   assert.equal(isChemDrawClipboard(event(["text/plain", "text/html"])), false);
   assert.equal(isChemDrawClipboard(event(["ChemDraw Interchange Format"])), true);
   assert.equal(isChemDrawClipboard(event(["application/x-cdxml"])), true);
+});
+
+test("native monitor parser preserves true and false clipboard states", () => {
+  const chemDraw = parseNativeClipboardStateLine('{"available":true,"sequence":42,"hasChemDraw":true,"formats":["ChemDraw Interchange Format","CF_ENHMETAFILE"]}');
+  assert.deepEqual(chemDraw, { available: true, sequence: 42, hasChemDraw: true, formats: ["ChemDraw Interchange Format", "CF_ENHMETAFILE"] });
+  const plain = parseNativeClipboardStateLine('{"available":true,"sequence":43,"hasChemDraw":false,"formats":["CF_UNICODETEXT"]}');
+  assert.equal(plain?.hasChemDraw, false);
+  const unavailable = parseNativeClipboardStateLine('{"available":false,"sequence":43,"hasChemDraw":true,"formats":[]}');
+  assert.equal(unavailable?.hasChemDraw, false);
+  assert.equal(parseNativeClipboardStateLine("not json"), undefined);
 });
 
 test("merge retains every provider observation", () => {
