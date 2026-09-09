@@ -64,11 +64,11 @@ class ChemDrawPastePlugin extends Plugin {
       await this.app.vault.createBinary(previewPath, await readCaptured(captured.preview.path));
       const sourcePaths: string[] = [];
       for (const source of captured.sources) {
-        const path = await this.app.fileManager.getAvailablePathForAttachment(`chemdraw-${source.format.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.bin`, view.file.path);
+        const path = await this.app.fileManager.getAvailablePathForAttachment("chemdraw-source.cdx", view.file.path);
         await this.app.vault.createBinary(path, await readCaptured(source.path)); sourcePaths.push(path);
       }
-      view.editor.replaceSelection(`![[${previewPath}]]${sourcePaths.length ? `\n\nChemDraw source candidates: ${sourcePaths.map((path) => `[[${path}]]`).join(" ")}` : ""}`);
-      new Notice(`ChemDraw Paste: inserted preview and saved ${sourcePaths.length} source candidate(s).`);
+      view.editor.replaceSelection(`![[${previewPath}]]${sourcePaths.length ? `\n\nChemDraw source: ${sourcePaths.map((path) => `[[${path}]]`).join(" ")}` : ""}`);
+      new Notice(`ChemDraw Paste: inserted preview and saved ${sourcePaths.length} ChemDraw source file(s).`);
     } catch (error) { new Notice(`ChemDraw Paste import failed: ${error instanceof Error ? error.message : "unknown error"}`); }
     finally { await rm(stage, { recursive: true, force: true }); }
   }
@@ -104,7 +104,7 @@ class ChemDrawPasteControlTab extends PluginSettingTab {
       .addButton((button) => button.setButtonText("Arm Next Paste").onClick(() => this.plugin.armNextPaste()));
     new Setting(containerEl)
       .setName("Import clipboard preview (experimental)")
-      .setDesc("Writes an EMF-derived PNG and raw ChemDraw source candidates, then inserts Markdown. Use only after copying from ChemDraw.")
+      .setDesc("Writes an EMF-derived PNG and a verified ChemDraw Interchange .cdx source, then inserts Markdown. Use only after copying from ChemDraw.")
       .addButton((button) => button.setButtonText("Import Preview").setWarning().onClick(() => void this.plugin.importClipboardPreview()));
     new Setting(containerEl)
       .setName("Show last diagnostic")
