@@ -8,12 +8,14 @@
 - Electron clipboard probe with runtime feature detection.
 - One-shot paste-event metadata probe.
 - Windows native clipboard format enumeration.
+- Event-driven Windows clipboard metadata monitor with fail-open lifecycle handling.
 - Safe format/size report modal.
 - Experimental user-triggered EMF preview import with raw ChemDraw source candidates.
+- Conservative Smart Paste for confirmed ChemDraw clipboards, with an asynchronous Markdown marker transaction.
 
 ### Safety
 
 - Read-only clipboard inspection.
 - Probe mode has no payload persistence; experimental import persists only after an explicit user command.
-- No paste interception.
+- Ordinary non-ChemDraw paste is never intercepted; confirmed ChemDraw paste is intercepted for the experimental import path.
 - No network or telemetry.
