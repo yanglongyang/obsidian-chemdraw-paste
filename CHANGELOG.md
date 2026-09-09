@@ -12,6 +12,7 @@
 - Safe format/size report modal.
 - Experimental user-triggered EMF preview import with raw ChemDraw source candidates.
 - Conservative Smart Paste for confirmed ChemDraw clipboards, with an asynchronous Markdown marker transaction.
+- ChemDraw Interchange clipboard data is validated and saved as `chemdraw-source.cdx`; auxiliary Structure Data is no longer saved.
 
 ### Safety
 

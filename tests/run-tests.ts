@@ -7,6 +7,7 @@ import { formatBytes } from "../src/utils/format";
 import { getObsidianVersion, getRuntimeInfo } from "../src/utils/runtime";
 import { isChemDrawClipboard } from "../src/paste/chemdraw-detector";
 import { parseNativeClipboardStateLine } from "../src/capture/windows-clipboard-monitor";
+import { isValidCDX } from "../src/capture/cdx";
 
 const tests: Array<[string, () => void | Promise<void>]> = [];
 const test = (name: string, fn: () => void | Promise<void>) => tests.push([name, fn]);
@@ -46,6 +47,15 @@ test("native monitor parser preserves true and false clipboard states", () => {
   const unavailable = parseNativeClipboardStateLine('{"available":false,"sequence":43,"hasChemDraw":true,"formats":[]}');
   assert.equal(unavailable?.hasChemDraw, false);
   assert.equal(parseNativeClipboardStateLine("not json"), undefined);
+});
+
+test("CDX validator accepts the ChemDraw signature without reserved-byte assumptions", () => {
+  const bytes = new Uint8Array(32);
+  bytes.set([0x56, 0x6a, 0x43, 0x44, 0x30, 0x31, 0x30, 0x30, 0x04, 0x03, 0x02, 0x01, 0x80]);
+  assert.equal(isValidCDX(bytes), true);
+  assert.equal(isValidCDX(bytes.slice(0, 28)), false);
+  bytes[0] = 0;
+  assert.equal(isValidCDX(bytes), false);
 });
 
 test("merge retains every provider observation", () => {

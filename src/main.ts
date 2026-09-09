@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { captureWindowsClipboard, readCaptured } from "./capture/windows-capture";
+import { isValidCDX } from "./capture/cdx";
 import { NativeClipboardMonitor } from "./capture/windows-clipboard-monitor";
 import { isChemDrawClipboard } from "./paste/chemdraw-detector";
 import { mergeProbeResults } from "./probe/clipboard-probe";
@@ -87,14 +88,20 @@ class ChemDrawPastePlugin extends Plugin {
     try {
       const captured = await captureWindowsClipboard(stage);
       if (!captured.preview) throw new Error("no CF_ENHMETAFILE preview was available");
+      const validSources: Array<{ data: ArrayBuffer }> = [];
+      for (const source of captured.sources) {
+        const data = await readCaptured(source.path);
+        if (source.format === "ChemDraw Interchange Format" && isValidCDX(data)) validSources.push({ data });
+      }
+      if (target?.marker && validSources.length === 0) throw new Error("no valid ChemDraw CDX source was available");
       const previewPath = await this.app.fileManager.getAvailablePathForAttachment("chemdraw-preview.png", view.file.path);
       await this.app.vault.createBinary(previewPath, await readCaptured(captured.preview.path));
       const sourcePaths: string[] = [];
-      for (const source of captured.sources) {
-        const path = await this.app.fileManager.getAvailablePathForAttachment(`chemdraw-${source.format.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.bin`, view.file.path);
-        await this.app.vault.createBinary(path, await readCaptured(source.path)); sourcePaths.push(path);
+      for (const source of validSources) {
+        const path = await this.app.fileManager.getAvailablePathForAttachment("chemdraw-source.cdx", view.file.path);
+        await this.app.vault.createBinary(path, source.data); sourcePaths.push(path);
       }
-      const markdown = `![[${previewPath}]]${sourcePaths.length ? `\n\nChemDraw source candidates: ${sourcePaths.map((path) => `[[${path}]]`).join(" ")}` : ""}`;
+      const markdown = `![[${previewPath}]]`;
       if (target?.marker) {
         if (!this.replaceMarker(view, target.marker, markdown)) throw new Error("paste target was removed before import completed");
       } else {

@@ -18,7 +18,7 @@
 - It does not modify, clear, or replace the clipboard.
 - The **Probe** commands do not save clipboard payloads, attachments, source files, or diagnostics to disk.
 - The **Probe** commands do not read or show clipboard text, binary data, CDX/CDXML, image data, or file contents.
-- The **Import Clipboard Preview (experimental)** command and confirmed Smart Paste are the only write paths: they write an EMF-derived PNG, raw source candidates, and insert Markdown in the note.
+- The **Import Clipboard Preview (experimental)** command and confirmed Smart Paste are the only write paths: they write an EMF-derived PNG, a validated ChemDraw Interchange `.cdx` sidecar when available, and insert only the preview reference in the note.
 - It never modifies, clears, or replaces the system clipboard, and it does not intercept ordinary non-ChemDraw paste behavior.
 - It has no telemetry, network, upload, cloud, AI, or database functionality.
 
@@ -61,7 +61,7 @@ Repeat relevant tests with **Probe Next Paste** to compare what the browser past
 - Clipboard APIs available to plugins depend on Obsidian's current Electron runtime.
 - Some native Windows formats may be visible only through the Windows probe.
 - The Windows helper enumerates format names only; it intentionally does not read native payloads, so those sizes are shown as `unknown`.
-- The experimental import currently saves source candidates as raw `.bin` files; the ChemDraw Interchange candidate must still be validated and promoted to a formal `.cdx` sidecar.
+- The experimental import validates the ChemDraw Interchange signature (`VjCD0100` plus the endian marker) and saves it as `chemdraw-source.cdx`; the auxiliary Structure Data format is intentionally not persisted.
 - Smart Paste does not emulate Word's embedded OLE object. It creates a preview plus source candidate attachments and does not embed or edit ChemDraw objects inside Obsidian.
 - Windows is the target platform. On macOS and Linux the Windows provider is gracefully unavailable; other providers may still run.
 
