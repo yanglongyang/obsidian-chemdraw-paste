@@ -7,7 +7,7 @@ import type { ProbeReport, ProviderProbeResult } from "./types";
 import { getRuntimeInfo } from "./utils/runtime";
 import { ClipboardProbeModal } from "./ui/probe-modal";
 
-export default class ChemDrawPastePlugin extends Plugin {
+class ChemDrawPastePlugin extends Plugin {
   private readonly electronProvider = new ElectronClipboardProvider();
   private readonly pasteProvider = new PasteEventProvider();
   private readonly windowsProvider = new WindowsClipboardProvider();
@@ -18,6 +18,7 @@ export default class ChemDrawPastePlugin extends Plugin {
     this.addCommand({ id: "probe-next-paste", name: "Probe Next Paste", callback: () => this.armNextPaste() });
     this.addCommand({ id: "show-last-diagnostic", name: "Show Last Diagnostic", callback: () => this.showLastDiagnostic() });
     this.register(() => this.pasteProvider.disarm());
+    new Notice("ChemDraw Paste: Clipboard Probe loaded. Use Command Palette to inspect or arm the next paste.");
   }
 
   onunload(): void { this.pasteProvider.disarm(); }
@@ -55,3 +56,6 @@ export default class ChemDrawPastePlugin extends Plugin {
     for (const format of report.formats) for (const observation of format.observations) console.debug("[ChemDraw Paste]", { format: format.name, size: observation.sizeBytes, provider: observation.provider, error: observation.error });
   }
 }
+
+// Match the direct CommonJS entry shape used by the working desktop-only plugin in this vault.
+module.exports = ChemDrawPastePlugin;
