@@ -35,7 +35,7 @@ export async function captureWindowsClipboard(directory: string): Promise<Native
   await fs.writeFile(scriptPath, SCRIPT, "utf8");
   const raw = await new Promise<string>((resolve, reject) => {
     const { execFile } = require("child_process") as typeof import("child_process");
-    execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-File", scriptPath, "-OutDir", directory], { windowsHide: true, timeout: 10000 }, (error, stdout, stderr) => error ? reject(new Error(stderr.trim() || error.message)) : resolve(stdout));
+    execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-STA", "-File", scriptPath, "-OutDir", directory], { windowsHide: true, timeout: 10000 }, (error, stdout, stderr) => error ? reject(new Error(stderr.trim() || error.message)) : resolve(stdout));
   });
   try {
     const result = JSON.parse(raw) as { sources?: { format:string; file:string; sizeBytes:number } | Array<{ format:string; file:string; sizeBytes:number }>; preview?: {format:string; file:string; sizeBytes:number} };
