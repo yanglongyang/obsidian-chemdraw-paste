@@ -260,6 +260,7 @@ class ChemDrawPastePlugin extends Plugin {
       const preview = this.app.vault.getAbstractFileByPath(previewPath);
       if (preview instanceof TFile) await this.app.vault.modifyBinary(preview, image);
       else await this.app.vault.createBinary(previewPath, image);
+      this.refreshRenderedPreviews(previewPath);
       void stable;
       console.debug("[ChemDraw Paste] automatic preview refresh", { sourcePath, previewPath, backend: rendered.backend, sizeBytes: rendered.sizeBytes });
     } catch (error) {
@@ -311,6 +312,38 @@ class ChemDrawPastePlugin extends Plugin {
     } catch (error) {
       console.debug("[ChemDraw Paste] stale preview reconciliation skipped", { error: error instanceof Error ? error.message : String(error) });
     }
+  }
+
+  /**
+   * Obsidian's image resource URL is stable for a given vault path. After an
+   * in-place binary replacement, an already-rendered embed can therefore keep
+   * showing the previous decoded image from Chromium's cache. Refresh only
+   * managed embeds that reference this path; do not reload the whole workspace
+   * or modify the Markdown source.
+   */
+  private refreshRenderedPreviews(previewPath: string): void {
+    const adapter = this.app.vault.adapter;
+    const resourcePath = adapter.getResourcePath(previewPath);
+    const resourceBase = resourcePath.split("?", 1)[0];
+    const cacheBust = `chemdraw-refresh=${Date.now()}`;
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      const view = leaf.view;
+      if (!(view instanceof MarkdownView)) return;
+      if (!view.getViewData().includes(previewPath)) return;
+
+      // Reading mode and source/preview transitions rebuild their own image
+      // elements. Request a light preview rerender first, then handle any
+      // currently mounted image element (including Live Preview widgets).
+      try { view.previewMode.rerender(false); } catch { /* best effort */ }
+      const images = view.containerEl.querySelectorAll("img");
+      for (const image of Array.from(images)) {
+        const current = image.currentSrc || image.src;
+        if (!current) continue;
+        const currentBase = current.split("?", 1)[0];
+        if (currentBase !== resourceBase) continue;
+        image.src = `${resourceBase}?${cacheBust}`;
+      }
+    });
   }
 
   private async createUniquePairPaths(date: Date, createdFolders: string[]): Promise<{ previewPath: string; sourcePath: string }> {
