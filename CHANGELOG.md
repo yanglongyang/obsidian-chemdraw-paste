@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.3.0 — Automatic Preview Synchronization
+
+### Added
+
+- Verified local ChemDraw COM rendering from standalone CDX to PNG.
+- Debounced source watcher with stable-file and CDX validation gates.
+- Automatic preview replacement through the Obsidian Vault API.
+- Startup reconciliation for stale managed previews.
+- Automatic preview refresh setting, enabled by default.
+
+### Safety
+
+- Source CDX files are never modified by the renderer.
+- Rendering uses a temporary PNG and preserves the old preview on failure.
+- No clipboard automation, UI simulation, ChemDraw process termination, or Markdown rewriting.
+
 ## 0.2.2 — Refresh Existing ChemDraw Object
 
 ### Added

@@ -9,8 +9,9 @@ import { isChemDrawClipboard } from "../src/paste/chemdraw-detector";
 import { parseNativeClipboardStateLine } from "../src/capture/windows-clipboard-monitor";
 import { isValidCDX } from "../src/capture/cdx";
 import { chemDrawMonthFolder, makeChemDrawBundleId, normalizeChemDrawAssetFolder } from "../src/utils/vault-path";
-import { managedPreviewPathFromMarkdownLine, resolveChemDrawSourcePath } from "../src/interaction/preview-source";
+import { managedPreviewPathFromMarkdownLine, resolveChemDrawPreviewPath, resolveChemDrawSourcePath } from "../src/interaction/preview-source";
 import { openSourceWithDefaultApp } from "../src/interaction/source-opener";
+import { isPng } from "../src/render/windows-chemdraw-renderer";
 
 const tests: Array<[string, () => void | Promise<void>]> = [];
 const test = (name: string, fn: () => void | Promise<void>) => tests.push([name, fn]);
@@ -83,6 +84,15 @@ test("managed preview resolver pairs only the current flat storage model", () =>
   assert.equal(managedPreviewPathFromMarkdownLine("![[ChemDraw/2026-09/CD-A-preview.png]]", "ChemDraw"), "ChemDraw/2026-09/CD-A-preview.png");
   assert.equal(managedPreviewPathFromMarkdownLine("![[png/photo.png]]", "ChemDraw"), null);
   assert.equal(managedPreviewPathFromMarkdownLine("![[ChemDraw/2026-09/CD-A-preview.png|caption]]", "ChemDraw"), "ChemDraw/2026-09/CD-A-preview.png");
+  assert.equal(resolveChemDrawPreviewPath("ChemDraw/2026-09/CD-A-source.cdx", "ChemDraw"), "ChemDraw/2026-09/CD-A-preview.png");
+  assert.equal(resolveChemDrawPreviewPath("Other/2026-09/CD-A-source.cdx", "ChemDraw"), null);
+  assert.equal(resolveChemDrawPreviewPath("ChemDraw/2026-09/foo-source.cdx", "ChemDraw"), null);
+});
+
+test("PNG validator accepts the PNG signature and rejects arbitrary bytes", () => {
+  const png = new Uint8Array(128); png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  assert.equal(isPng(png), true);
+  assert.equal(isPng(new Uint8Array(128)), false);
 });
 
 test("default-app opener reports injected failures predictably", async () => {

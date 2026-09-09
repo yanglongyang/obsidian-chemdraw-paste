@@ -5,7 +5,7 @@ import { join } from "path";
 import { captureWindowsClipboard, readCaptured } from "./capture/windows-capture";
 import { isValidCDX } from "./capture/cdx";
 import { NativeClipboardMonitor } from "./capture/windows-clipboard-monitor";
-import { managedPreviewPathFromMarkdownLine, resolveChemDrawSourcePath } from "./interaction/preview-source";
+import { managedPreviewPathFromMarkdownLine, resolveChemDrawPreviewPath, resolveChemDrawSourcePath } from "./interaction/preview-source";
 import { openSourceWithDefaultApp } from "./interaction/source-opener";
 import { isChemDrawClipboard } from "./paste/chemdraw-detector";
 import { mergeProbeResults } from "./probe/clipboard-probe";
@@ -16,6 +16,7 @@ import type { ProbeReport, ProviderProbeResult } from "./types";
 import { getObsidianVersion, getRuntimeInfo } from "./utils/runtime";
 import { chemDrawMonthFolder, makeChemDrawBundleId, normalizeChemDrawAssetFolder } from "./utils/vault-path";
 import { ClipboardProbeModal } from "./ui/probe-modal";
+import { WindowsChemDrawRenderer, isPng } from "./render/windows-chemdraw-renderer";
 
 interface PasteTarget {
   view: MarkdownView;
@@ -24,22 +25,32 @@ interface PasteTarget {
 
 interface ChemDrawPasteSettings {
   assetFolder: string;
+  autoRefresh: boolean;
 }
 
-const DEFAULT_SETTINGS: ChemDrawPasteSettings = { assetFolder: "ChemDraw" };
+const DEFAULT_SETTINGS: ChemDrawPasteSettings = { assetFolder: "ChemDraw", autoRefresh: true };
+
+interface RefreshState {
+  timer?: ReturnType<typeof setTimeout>;
+  running: boolean;
+  pending: boolean;
+}
 
 class ChemDrawPastePlugin extends Plugin {
   private readonly electronProvider = new ElectronClipboardProvider();
   private readonly pasteProvider = new PasteEventProvider();
   private readonly windowsProvider = new WindowsClipboardProvider();
   private readonly nativeClipboardMonitor = new NativeClipboardMonitor();
+  private readonly renderer = new WindowsChemDrawRenderer();
   private pluginSettings: ChemDrawPasteSettings = { ...DEFAULT_SETTINGS };
+  private readonly refreshStates = new Map<string, RefreshState>();
   private lastReport?: ProbeReport;
 
   async onload(): Promise<void> {
     const saved = await this.loadData() as Partial<ChemDrawPasteSettings> | null;
     try {
       this.pluginSettings.assetFolder = normalizeChemDrawAssetFolder(saved?.assetFolder ?? DEFAULT_SETTINGS.assetFolder);
+      this.pluginSettings.autoRefresh = saved?.autoRefresh !== false;
     } catch {
       this.pluginSettings.assetFolder = DEFAULT_SETTINGS.assetFolder;
     }
@@ -53,6 +64,8 @@ class ChemDrawPastePlugin extends Plugin {
     this.register(() => this.pasteProvider.disarm());
     void this.nativeClipboardMonitor.start();
     this.register(() => this.nativeClipboardMonitor.stop());
+    this.registerEvent(this.app.vault.on("modify", (file) => this.scheduleAutomaticRefresh(file.path)));
+    if (this.pluginSettings.autoRefresh) void this.reconcileStalePreviews();
     const smartPasteListener = (event: ClipboardEvent) => {
       // The browser fast path covers formats Chromium exposes. The native cache
       // covers Windows registered formats hidden from ClipboardEvent. Both checks
@@ -75,6 +88,8 @@ class ChemDrawPastePlugin extends Plugin {
   onunload(): void {
     this.pasteProvider.disarm();
     this.nativeClipboardMonitor.stop();
+    for (const state of this.refreshStates.values()) if (state.timer) clearTimeout(state.timer);
+    this.refreshStates.clear();
   }
 
   async inspectClipboard(): Promise<void> {
@@ -208,6 +223,95 @@ class ChemDrawPastePlugin extends Plugin {
   }
 
   getAssetFolder(): string { return this.pluginSettings.assetFolder; }
+
+  async setAutoRefresh(value: boolean): Promise<void> {
+    this.pluginSettings.autoRefresh = value;
+    await this.saveData(this.pluginSettings);
+    if (value) void this.reconcileStalePreviews();
+  }
+
+  getAutoRefresh(): boolean { return this.pluginSettings.autoRefresh; }
+
+  private scheduleAutomaticRefresh(sourcePath: string, delay = 750): void {
+    if (process.platform !== "win32" || !this.pluginSettings.autoRefresh || !resolveChemDrawPreviewPath(sourcePath, this.getAssetFolder())) return;
+    const state = this.refreshStates.get(sourcePath) ?? { running: false, pending: false };
+    this.refreshStates.set(sourcePath, state);
+    if (state.running) { state.pending = true; return; }
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = setTimeout(() => {
+      state.timer = undefined;
+      void this.processAutomaticRefresh(sourcePath, state);
+    }, delay);
+  }
+
+  private async processAutomaticRefresh(sourcePath: string, state: RefreshState): Promise<void> {
+    if (state.running || !this.pluginSettings.autoRefresh) return;
+    state.running = true;
+    const stage = await mkdtemp(join(tmpdir(), "chemdraw-render-"));
+    try {
+      const stable = await this.readStableCDX(sourcePath);
+      const previewPath = resolveChemDrawPreviewPath(sourcePath, this.getAssetFolder());
+      if (!previewPath) return;
+      const adapter = this.app.vault.adapter;
+      if (!(adapter instanceof FileSystemAdapter)) throw new Error("the current vault adapter does not expose local file paths");
+      const rendered = await this.renderer.render(adapter.getFullPath(sourcePath), stage);
+      const image = await readCaptured(rendered.outputPath);
+      if (!isPng(new Uint8Array(image)) || image.byteLength < 128) throw new Error("renderer output failed PNG validation");
+      const preview = this.app.vault.getAbstractFileByPath(previewPath);
+      if (preview instanceof TFile) await this.app.vault.modifyBinary(preview, image);
+      else await this.app.vault.createBinary(previewPath, image);
+      void stable;
+      console.debug("[ChemDraw Paste] automatic preview refresh", { sourcePath, previewPath, backend: rendered.backend, sizeBytes: rendered.sizeBytes });
+    } catch (error) {
+      new Notice(`ChemDraw Paste: Automatic preview refresh failed for ${sourcePath.split("/").pop() ?? "source"}.`);
+      console.debug("[ChemDraw Paste] automatic preview refresh failed", { sourcePath, error: error instanceof Error ? error.message : String(error) });
+    } finally {
+      await rm(stage, { recursive: true, force: true });
+      state.running = false;
+      if (state.pending) {
+        state.pending = false;
+        this.scheduleAutomaticRefresh(sourcePath, 0);
+      }
+    }
+  }
+
+  private async readStableCDX(sourcePath: string): Promise<ArrayBuffer> {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const before = await this.app.vault.adapter.stat(sourcePath);
+      if (!before) throw new Error("source.cdx is missing");
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const after = await this.app.vault.adapter.stat(sourcePath);
+      if (after && before.size === after.size && before.mtime === after.mtime) {
+        const source = this.app.vault.getAbstractFileByPath(sourcePath);
+        if (source instanceof TFile) {
+          const data = await this.app.vault.readBinary(source);
+          if (isValidCDX(data)) return data;
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    throw new Error("source.cdx did not become stable and valid");
+  }
+
+  private async reconcileStalePreviews(): Promise<void> {
+    const root = this.getAssetFolder();
+    try {
+      const listing = await this.app.vault.adapter.list(root);
+      for (const folder of listing.folders.filter((path) => /^\d{4}-\d{2}$/.test(path.slice(root.length + 1)))) {
+        const month = await this.app.vault.adapter.list(folder);
+        for (const sourcePath of month.files) {
+          if (!resolveChemDrawPreviewPath(sourcePath, root)) continue;
+          const previewPath = resolveChemDrawPreviewPath(sourcePath, root);
+          if (!previewPath) continue;
+          const sourceStat = await this.app.vault.adapter.stat(sourcePath);
+          const previewStat = await this.app.vault.adapter.stat(previewPath);
+          if (!previewStat || (sourceStat && sourceStat.mtime > previewStat.mtime)) this.scheduleAutomaticRefresh(sourcePath, 0);
+        }
+      }
+    } catch (error) {
+      console.debug("[ChemDraw Paste] stale preview reconciliation skipped", { error: error instanceof Error ? error.message : String(error) });
+    }
+  }
 
   private async createUniquePairPaths(date: Date, createdFolders: string[]): Promise<{ previewPath: string; sourcePath: string }> {
     const monthRoot = `${this.pluginSettings.assetFolder}/${chemDrawMonthFolder(date)}`;
@@ -345,7 +449,7 @@ class ChemDrawPastePlugin extends Plugin {
   }
 }
 
-/** No persisted settings: this tab is a discoverable control surface when command search is unavailable. */
+/** Settings and discoverable controls when command search is unavailable. */
 class ChemDrawPasteControlTab extends PluginSettingTab {
   constructor(app: App, private readonly plugin: ChemDrawPastePlugin) { super(app, plugin); }
 
@@ -358,6 +462,10 @@ class ChemDrawPasteControlTab extends PluginSettingTab {
       .setName("ChemDraw asset folder")
       .setDesc("Vault-relative folder for new ChemDraw/YYYY-MM preview/source pairs. Changing this affects new pastes only.")
       .addText((text) => text.setPlaceholder(DEFAULT_SETTINGS.assetFolder).setValue(this.plugin.getAssetFolder()).onChange((value) => void this.plugin.setAssetFolder(value)));
+    new Setting(containerEl)
+      .setName("Automatic preview refresh")
+      .setDesc("Regenerate the paired PNG when a managed source.cdx is saved. Requires the verified local ChemDraw renderer.")
+      .addToggle((toggle) => toggle.setValue(this.plugin.getAutoRefresh()).onChange((value) => void this.plugin.setAutoRefresh(value)));
     new Setting(containerEl)
       .setName("Inspect current clipboard")
       .setDesc("Run the Electron and Windows metadata probes now.")

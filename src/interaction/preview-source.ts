@@ -25,6 +25,23 @@ export function resolveChemDrawSourcePath(previewPath: string, assetRoot: string
   return `${root}/${month}/${match[1]}-source.cdx`;
 }
 
+/** Resolve the paired preview for the current flat source naming convention. */
+export function resolveChemDrawPreviewPath(sourcePath: string, assetRoot: string): string | null {
+  let root: string;
+  const normalizedSource = normalizeVaultPath(sourcePath);
+  try { root = normalizeChemDrawAssetFolder(assetRoot); } catch { return null; }
+  if (!normalizedSource) return null;
+  const rootParts = root.split("/");
+  const sourceParts = normalizedSource.split("/");
+  if (sourceParts.length !== rootParts.length + 2 || !rootParts.every((part, index) => sourceParts[index] === part)) return null;
+  const month = sourceParts[rootParts.length];
+  const filename = sourceParts[rootParts.length + 1];
+  if (!/^\d{4}-\d{2}$/.test(month)) return null;
+  const match = /^(CD-.+)-source\.cdx$/.exec(filename);
+  if (!match) return null;
+  return `${root}/${month}/${match[1]}-preview.png`;
+}
+
 /** Find a managed preview embed on one Markdown line, without using display captions. */
 export function managedPreviewPathFromMarkdownLine(line: string, assetRoot: string): string | null {
   const embeds = /!\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g;
