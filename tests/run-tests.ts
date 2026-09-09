@@ -8,6 +8,7 @@ import { getObsidianVersion, getRuntimeInfo } from "../src/utils/runtime";
 import { isChemDrawClipboard } from "../src/paste/chemdraw-detector";
 import { parseNativeClipboardStateLine } from "../src/capture/windows-clipboard-monitor";
 import { isValidCDX } from "../src/capture/cdx";
+import { chemDrawMonthFolder, makeChemDrawBundleId, normalizeChemDrawAssetFolder } from "../src/utils/vault-path";
 
 const tests: Array<[string, () => void | Promise<void>]> = [];
 const test = (name: string, fn: () => void | Promise<void>) => tests.push([name, fn]);
@@ -56,6 +57,16 @@ test("CDX validator accepts the ChemDraw signature without reserved-byte assumpt
   assert.equal(isValidCDX(bytes.slice(0, 28)), false);
   bytes[0] = 0;
   assert.equal(isValidCDX(bytes), false);
+});
+
+test("ChemDraw asset folders stay Vault-relative and bundle IDs are stable", () => {
+  assert.equal(normalizeChemDrawAssetFolder("  assets\\ChemDraw/  "), "assets/ChemDraw");
+  assert.throws(() => normalizeChemDrawAssetFolder("../outside"));
+  assert.throws(() => normalizeChemDrawAssetFolder("C:\\Users\\test"));
+  assert.throws(() => normalizeChemDrawAssetFolder(".obsidian/plugins"));
+  const date = new Date(2026, 8, 9, 22, 29, 1);
+  assert.equal(chemDrawMonthFolder(date), "2026-09");
+  assert.equal(makeChemDrawBundleId(date, 0), "CD-20260909-222901-0000");
 });
 
 test("merge retains every provider observation", () => {

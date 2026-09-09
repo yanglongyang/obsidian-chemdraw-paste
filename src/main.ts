@@ -1,4 +1,4 @@
-import { App, MarkdownView, Notice, Plugin, PluginSettingTab, Setting } from "obsidian";
+import { App, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, TFolder } from "obsidian";
 import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -12,6 +12,7 @@ import { PasteEventProvider } from "./probe/paste-event-provider";
 import { WindowsClipboardProvider } from "./probe/windows-provider";
 import type { ProbeReport, ProviderProbeResult } from "./types";
 import { getObsidianVersion, getRuntimeInfo } from "./utils/runtime";
+import { chemDrawMonthFolder, makeChemDrawBundleId, normalizeChemDrawAssetFolder } from "./utils/vault-path";
 import { ClipboardProbeModal } from "./ui/probe-modal";
 
 interface PasteTarget {
@@ -19,14 +20,27 @@ interface PasteTarget {
   marker?: string;
 }
 
+interface ChemDrawPasteSettings {
+  assetFolder: string;
+}
+
+const DEFAULT_SETTINGS: ChemDrawPasteSettings = { assetFolder: "ChemDraw" };
+
 class ChemDrawPastePlugin extends Plugin {
   private readonly electronProvider = new ElectronClipboardProvider();
   private readonly pasteProvider = new PasteEventProvider();
   private readonly windowsProvider = new WindowsClipboardProvider();
   private readonly nativeClipboardMonitor = new NativeClipboardMonitor();
+  private pluginSettings: ChemDrawPasteSettings = { ...DEFAULT_SETTINGS };
   private lastReport?: ProbeReport;
 
   async onload(): Promise<void> {
+    const saved = await this.loadData() as Partial<ChemDrawPasteSettings> | null;
+    try {
+      this.pluginSettings.assetFolder = normalizeChemDrawAssetFolder(saved?.assetFolder ?? DEFAULT_SETTINGS.assetFolder);
+    } catch {
+      this.pluginSettings.assetFolder = DEFAULT_SETTINGS.assetFolder;
+    }
     this.addCommand({ id: "inspect-clipboard", name: "Inspect Clipboard", callback: () => this.inspectClipboard() });
     this.addCommand({ id: "probe-next-paste", name: "Probe Next Paste", callback: () => this.armNextPaste() });
     this.addCommand({ id: "show-last-diagnostic", name: "Show Last Diagnostic", callback: () => this.showLastDiagnostic() });
@@ -85,6 +99,8 @@ class ChemDrawPastePlugin extends Plugin {
     const view = target?.view ?? this.app.workspace.getActiveViewOfType(MarkdownView);
     if (!view?.file || !view.editor) return void new Notice("ChemDraw Paste: open a Markdown note before importing.");
     const stage = await mkdtemp(join(tmpdir(), "chemdraw-paste-"));
+    const createdFiles: string[] = [];
+    const createdFolders: string[] = [];
     try {
       const captured = await captureWindowsClipboard(stage);
       if (!captured.preview) throw new Error("no CF_ENHMETAFILE preview was available");
@@ -94,11 +110,15 @@ class ChemDrawPastePlugin extends Plugin {
         if (source.format === "ChemDraw Interchange Format" && isValidCDX(data)) validSources.push({ data });
       }
       if (target?.marker && validSources.length === 0) throw new Error("no valid ChemDraw CDX source was available");
-      const previewPath = await this.app.fileManager.getAvailablePathForAttachment("chemdraw-preview.png", view.file.path);
+      const capturedAt = new Date();
+      const bundleRoot = await this.createUniqueBundlePath(capturedAt, createdFolders);
+      const previewPath = `${bundleRoot}/preview.png`;
+      createdFiles.push(previewPath);
       await this.app.vault.createBinary(previewPath, await readCaptured(captured.preview.path));
       const sourcePaths: string[] = [];
       for (const source of validSources) {
-        const path = await this.app.fileManager.getAvailablePathForAttachment("chemdraw-source.cdx", view.file.path);
+        const path = `${bundleRoot}/source.cdx`;
+        createdFiles.push(path);
         await this.app.vault.createBinary(path, source.data); sourcePaths.push(path);
       }
       const markdown = `![[${previewPath}]]`;
@@ -107,12 +127,66 @@ class ChemDrawPastePlugin extends Plugin {
       } else {
         view.editor.replaceSelection(markdown);
       }
-      new Notice(`ChemDraw Paste: inserted preview and saved ${sourcePaths.length} source candidate(s).`);
+      new Notice(`ChemDraw Paste: inserted preview bundle ${bundleRoot}${sourcePaths.length ? " with editable CDX source" : ""}.`);
     } catch (error) {
       if (target?.marker) this.replaceMarker(view, target.marker, "");
+      await this.rollbackCreatedAssets(createdFiles, createdFolders);
       new Notice(`ChemDraw Paste import failed: ${error instanceof Error ? error.message : "unknown error"}`);
     }
     finally { await rm(stage, { recursive: true, force: true }); }
+  }
+
+  async setAssetFolder(value: string): Promise<boolean> {
+    try {
+      this.pluginSettings.assetFolder = normalizeChemDrawAssetFolder(value);
+      await this.saveData(this.pluginSettings);
+      return true;
+    } catch (error) {
+      new Notice(`ChemDraw Paste: invalid asset folder — ${error instanceof Error ? error.message : "use a Vault-relative path"}`);
+      return false;
+    }
+  }
+
+  getAssetFolder(): string { return this.pluginSettings.assetFolder; }
+
+  private async createUniqueBundlePath(date: Date, createdFolders: string[]): Promise<string> {
+    const monthRoot = `${this.pluginSettings.assetFolder}/${chemDrawMonthFolder(date)}`;
+    await this.ensureFolder(this.pluginSettings.assetFolder, createdFolders);
+    await this.ensureFolder(monthRoot, createdFolders);
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const bundle = `${monthRoot}/${makeChemDrawBundleId(date)}`;
+      if (!this.app.vault.getAbstractFileByPath(bundle)) {
+        await this.ensureFolder(bundle, createdFolders);
+        return bundle;
+      }
+    }
+    throw new Error("could not allocate a unique ChemDraw bundle folder");
+  }
+
+  private async ensureFolder(path: string, createdFolders: string[]): Promise<void> {
+    const parts = path.split("/");
+    let current = "";
+    for (const part of parts) {
+      current = current ? `${current}/${part}` : part;
+      if (this.app.vault.getAbstractFileByPath(current)) continue;
+      try {
+        await this.app.vault.createFolder(current);
+        createdFolders.push(current);
+      } catch (error) {
+        if (!this.app.vault.getAbstractFileByPath(current)) throw error;
+      }
+    }
+  }
+
+  private async rollbackCreatedAssets(files: string[], folders: string[]): Promise<void> {
+    for (const path of [...files].reverse()) {
+      const file = this.app.vault.getAbstractFileByPath(path);
+      if (file) await this.app.vault.delete(file).catch(() => undefined);
+    }
+    for (const path of [...folders].reverse()) {
+      const folder = this.app.vault.getAbstractFileByPath(path);
+      if (folder instanceof TFolder && folder.children.length === 0) await this.app.vault.delete(folder).catch(() => undefined);
+    }
   }
 
   private capturePasteTarget(): PasteTarget | undefined {
@@ -162,6 +236,10 @@ class ChemDrawPasteControlTab extends PluginSettingTab {
     containerEl.createEl("h2", { text: "ChemDraw Paste — Clipboard Probe" });
     containerEl.createEl("p", { text: "Read-only diagnostics. These controls never modify the clipboard or your note." });
     new Setting(containerEl)
+      .setName("ChemDraw asset folder")
+      .setDesc("Vault-relative folder for new ChemDraw/YYYY-MM/bundle attachments. Changing this affects new pastes only.")
+      .addText((text) => text.setPlaceholder(DEFAULT_SETTINGS.assetFolder).setValue(this.plugin.getAssetFolder()).onChange((value) => void this.plugin.setAssetFolder(value)));
+    new Setting(containerEl)
       .setName("Inspect current clipboard")
       .setDesc("Run the Electron and Windows metadata probes now.")
       .addButton((button) => button.setButtonText("Inspect Clipboard").setCta().onClick(() => void this.plugin.inspectClipboard()));
@@ -171,7 +249,7 @@ class ChemDrawPasteControlTab extends PluginSettingTab {
       .addButton((button) => button.setButtonText("Arm Next Paste").onClick(() => this.plugin.armNextPaste()));
     new Setting(containerEl)
       .setName("Import clipboard preview (experimental)")
-      .setDesc("Ctrl+V is intercepted only when the native Windows clipboard cache confirms ChemDraw. A manual import writes an EMF-derived PNG and raw source candidates.")
+      .setDesc("Ctrl+V is intercepted only when the native Windows clipboard cache confirms ChemDraw. A manual import writes a managed preview bundle and validated CDX source when available.")
       .addButton((button) => button.setButtonText("Import Preview").setWarning().onClick(() => void this.plugin.importClipboardPreview()));
     new Setting(containerEl)
       .setName("Show last diagnostic")

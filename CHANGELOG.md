@@ -10,7 +10,7 @@
 - Windows native clipboard format enumeration.
 - Event-driven Windows clipboard metadata monitor with fail-open lifecycle handling.
 - Safe format/size report modal.
-- Experimental user-triggered EMF preview import with raw ChemDraw source candidates.
+- Experimental user-triggered EMF preview import with validated ChemDraw Interchange source.
 - Conservative Smart Paste for confirmed ChemDraw clipboards, with an asynchronous Markdown marker transaction.
 - ChemDraw Interchange clipboard data is validated and saved as `chemdraw-source.cdx`; auxiliary Structure Data is no longer saved.
 
