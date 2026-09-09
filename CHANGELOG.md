@@ -5,6 +5,7 @@
 ### Added
 
 - Refresh an existing managed preview/source pair from the current ChemDraw clipboard.
+- Add a managed-preview-only context-menu action, `Refresh from ChemDraw Clipboard`.
 - Preserve object ID, file paths, and Markdown while replacing both files.
 - Roll back the preview if source replacement fails.
 

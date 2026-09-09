@@ -1,4 +1,4 @@
-import { App, FileSystemAdapter, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder } from "obsidian";
+import { App, FileSystemAdapter, MarkdownView, Menu, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder } from "obsidian";
 import { mkdtemp, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -68,6 +68,7 @@ class ChemDrawPastePlugin extends Plugin {
     window.addEventListener("paste", smartPasteListener, true);
     this.register(() => window.removeEventListener("paste", smartPasteListener, true));
     this.registerDomEvent(document, "dblclick", (event) => void this.handlePreviewDoubleClick(event));
+    this.registerDomEvent(document, "contextmenu", (event) => this.handlePreviewContextMenu(event));
     new Notice("ChemDraw Paste: Clipboard Probe loaded. Use the ribbon flask icon or plugin settings if commands are not visible.");
   }
 
@@ -141,6 +142,11 @@ class ChemDrawPastePlugin extends Plugin {
     if (!view?.file || !view.editor) return void new Notice("ChemDraw Paste: place the cursor on a managed preview embed first.");
     const previewPath = managedPreviewPathFromMarkdownLine(view.editor.getLine(view.editor.getCursor("head").line), this.getAssetFolder());
     if (!previewPath) return void new Notice("ChemDraw Paste: place the cursor on a managed ChemDraw preview first.");
+    await this.refreshChemDrawPreviewPath(previewPath);
+  }
+
+  private async refreshChemDrawPreviewPath(previewPath: string): Promise<void> {
+    if (process.platform !== "win32") return void new Notice("ChemDraw Paste: refresh is currently Windows-only.");
     const sourcePath = resolveChemDrawSourcePath(previewPath, this.getAssetFolder());
     if (!sourcePath) return void new Notice("ChemDraw Paste: could not resolve the paired CDX source.");
     const previewFile = this.app.vault.getAbstractFileByPath(previewPath);
@@ -177,6 +183,17 @@ class ChemDrawPastePlugin extends Plugin {
     } finally {
       await rm(stage, { recursive: true, force: true });
     }
+  }
+
+  private handlePreviewContextMenu(event: MouseEvent): void {
+    const image = this.imageFromEvent(event);
+    if (!image) return;
+    const previewPath = this.resolveImageVaultPath(image);
+    if (!previewPath || !resolveChemDrawSourcePath(previewPath, this.getAssetFolder())) return;
+    event.preventDefault();
+    const menu = new Menu();
+    menu.addItem((item) => item.setTitle("Refresh from ChemDraw Clipboard").setIcon("refresh-cw").onClick(() => void this.refreshChemDrawPreviewPath(previewPath)));
+    menu.showAtMouseEvent(event);
   }
 
   async setAssetFolder(value: string): Promise<boolean> {
