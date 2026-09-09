@@ -35,7 +35,7 @@ The report retains only format names, provider names, byte sizes when a runtime 
 - **ChemDraw Paste: Inspect Clipboard** — immediately runs every available read-only provider and opens a diagnostic modal.
 - **ChemDraw Paste: Probe Next Paste** — arms exactly one paste listener. Return to a Markdown editor and paste normally; the plugin observes event metadata only and opens the report after Obsidian receives the paste.
 - **ChemDraw Paste: Show Last Diagnostic** — reopens the last in-memory report. Nothing survives a plugin reload.
-- **ChemDraw Paste: Import Clipboard Preview (experimental)** — explicitly captures `CF_ENHMETAFILE` plus the validated ChemDraw Interchange source, creates a `ChemDraw/YYYY-MM/CD-.../` bundle, and inserts its preview. It must be run from an open Markdown note.
+- **ChemDraw Paste: Import Clipboard Preview (experimental)** — explicitly captures `CF_ENHMETAFILE` plus the validated ChemDraw Interchange source, creates a paired `ChemDraw/YYYY-MM/CD-...-preview.png` and `CD-...-source.cdx`, and inserts the preview. It must be run from an open Markdown note.
 
 When the plugin is enabled on Windows, copying from ChemDraw updates an in-memory native format cache. Pressing Ctrl+V in a Markdown note automatically imports only while that cache says the current clipboard contains ChemDraw formats. Plain text, browser HTML, PNG, and an unavailable monitor are left to Obsidian unchanged.
 
@@ -61,8 +61,8 @@ Repeat relevant tests with **Probe Next Paste** to compare what the browser past
 - Clipboard APIs available to plugins depend on Obsidian's current Electron runtime.
 - Some native Windows formats may be visible only through the Windows probe.
 - The Windows helper enumerates format names only; it intentionally does not read native payloads, so those sizes are shown as `unknown`.
-- The experimental import validates the ChemDraw Interchange signature (`VjCD0100` plus the endian marker) and saves it as `chemdraw-source.cdx`; the auxiliary Structure Data format is intentionally not persisted.
-- Smart Paste does not emulate Word's embedded OLE object. It creates a preview plus a sibling `.cdx` source in a managed bundle and does not embed or edit ChemDraw objects inside Obsidian.
+- The experimental import validates the ChemDraw Interchange signature (`VjCD0100` plus the endian marker) and saves it as the paired `*-source.cdx`; the auxiliary Structure Data format is intentionally not persisted.
+- Smart Paste does not emulate Word's embedded OLE object. It creates a paired preview and `.cdx` source in a managed monthly folder and does not embed or edit ChemDraw objects inside Obsidian.
 - Windows is the target platform. On macOS and Linux the Windows provider is gracefully unavailable; other providers may still run.
 
 ## Development checks

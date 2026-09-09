@@ -12,7 +12,8 @@
 - Safe format/size report modal.
 - Experimental user-triggered EMF preview import with validated ChemDraw Interchange source.
 - Conservative Smart Paste for confirmed ChemDraw clipboards, with an asynchronous Markdown marker transaction.
-- ChemDraw Interchange clipboard data is validated and saved as `chemdraw-source.cdx`; auxiliary Structure Data is no longer saved.
+- ChemDraw Interchange clipboard data is validated and saved as the paired `*-source.cdx`; auxiliary Structure Data is no longer saved.
+- ChemDraw assets are stored as monthly flat preview/source pairs with one shared object ID.
 
 ### Safety
 

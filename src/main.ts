@@ -111,23 +111,18 @@ class ChemDrawPastePlugin extends Plugin {
       }
       if (validSources.length === 0) throw new Error("no valid ChemDraw CDX source was available");
       const capturedAt = new Date();
-      const bundleRoot = await this.createUniqueBundlePath(capturedAt, createdFolders);
-      const previewPath = `${bundleRoot}/preview.png`;
-      createdFiles.push(previewPath);
+      const paths = await this.createUniquePairPaths(capturedAt, createdFolders);
+      const previewPath = paths.previewPath;
+      createdFiles.push(previewPath, paths.sourcePath);
       await this.app.vault.createBinary(previewPath, await readCaptured(captured.preview.path));
-      const sourcePaths: string[] = [];
-      for (const source of validSources) {
-        const path = `${bundleRoot}/source.cdx`;
-        createdFiles.push(path);
-        await this.app.vault.createBinary(path, source.data); sourcePaths.push(path);
-      }
+      await this.app.vault.createBinary(paths.sourcePath, validSources[0].data);
       const markdown = `![[${previewPath}]]`;
       if (target?.marker) {
         if (!this.replaceMarker(view, target.marker, markdown)) throw new Error("paste target was removed before import completed");
       } else {
         view.editor.replaceSelection(markdown);
       }
-      new Notice(`ChemDraw Paste: inserted preview bundle ${bundleRoot} with editable CDX source.`);
+      new Notice(`ChemDraw Paste: inserted preview/source pair ${paths.previewPath}.`);
     } catch (error) {
       if (target?.marker) this.replaceMarker(view, target.marker, "");
       await this.rollbackCreatedAssets(createdFiles, createdFolders);
@@ -149,18 +144,19 @@ class ChemDrawPastePlugin extends Plugin {
 
   getAssetFolder(): string { return this.pluginSettings.assetFolder; }
 
-  private async createUniqueBundlePath(date: Date, createdFolders: string[]): Promise<string> {
+  private async createUniquePairPaths(date: Date, createdFolders: string[]): Promise<{ previewPath: string; sourcePath: string }> {
     const monthRoot = `${this.pluginSettings.assetFolder}/${chemDrawMonthFolder(date)}`;
     await this.ensureFolder(this.pluginSettings.assetFolder, createdFolders);
     await this.ensureFolder(monthRoot, createdFolders);
     for (let attempt = 0; attempt < 20; attempt += 1) {
-      const bundle = `${monthRoot}/${makeChemDrawBundleId(date)}`;
-      if (!this.app.vault.getAbstractFileByPath(bundle)) {
-        await this.ensureFolder(bundle, createdFolders);
-        return bundle;
+      const id = makeChemDrawBundleId(date);
+      const previewPath = `${monthRoot}/${id}-preview.png`;
+      const sourcePath = `${monthRoot}/${id}-source.cdx`;
+      if (!this.app.vault.getAbstractFileByPath(previewPath) && !this.app.vault.getAbstractFileByPath(sourcePath)) {
+        return { previewPath, sourcePath };
       }
     }
-    throw new Error("could not allocate a unique ChemDraw bundle folder");
+    throw new Error("could not allocate a unique ChemDraw preview/source pair");
   }
 
   private async ensureFolder(path: string, createdFolders: string[]): Promise<void> {
@@ -237,7 +233,7 @@ class ChemDrawPasteControlTab extends PluginSettingTab {
     containerEl.createEl("p", { text: "Read-only diagnostics. These controls never modify the clipboard or your note." });
     new Setting(containerEl)
       .setName("ChemDraw asset folder")
-      .setDesc("Vault-relative folder for new ChemDraw/YYYY-MM/bundle attachments. Changing this affects new pastes only.")
+      .setDesc("Vault-relative folder for new ChemDraw/YYYY-MM preview/source pairs. Changing this affects new pastes only.")
       .addText((text) => text.setPlaceholder(DEFAULT_SETTINGS.assetFolder).setValue(this.plugin.getAssetFolder()).onChange((value) => void this.plugin.setAssetFolder(value)));
     new Setting(containerEl)
       .setName("Inspect current clipboard")
