@@ -30,9 +30,12 @@ try { foreach($x in @(@('ChemDraw Interchange Format','interchange.bin'),@('Chem
 `;
 
 export async function captureWindowsClipboard(directory: string): Promise<NativeCapture> {
+  const scriptPath = join(directory, "capture.ps1");
+  // A fixed, short-lived script avoids ambiguous PowerShell -Command argument parsing.
+  await fs.writeFile(scriptPath, SCRIPT, "utf8");
   const raw = await new Promise<string>((resolve, reject) => {
     const { execFile } = require("child_process") as typeof import("child_process");
-    execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", SCRIPT, "-OutDir", directory], { windowsHide: true, timeout: 10000 }, (error, stdout) => error ? reject(error) : resolve(stdout));
+    execFile("powershell.exe", ["-NoProfile", "-NonInteractive", "-File", scriptPath, "-OutDir", directory], { windowsHide: true, timeout: 10000 }, (error, stdout, stderr) => error ? reject(new Error(stderr.trim() || error.message)) : resolve(stdout));
   });
   try {
     const result = JSON.parse(raw) as { sources?: Array<{ format:string; file:string; sizeBytes:number }>; preview?: {format:string; file:string; sizeBytes:number} };
