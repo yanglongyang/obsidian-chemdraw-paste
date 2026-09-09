@@ -9,10 +9,11 @@
 - One-shot paste-event metadata probe.
 - Windows native clipboard format enumeration.
 - Safe format/size report modal.
+- Experimental user-triggered EMF preview import with raw ChemDraw source candidates.
 
 ### Safety
 
 - Read-only clipboard inspection.
-- No payload persistence.
+- Probe mode has no payload persistence; experimental import persists only after an explicit user command.
 - No paste interception.
 - No network or telemetry.

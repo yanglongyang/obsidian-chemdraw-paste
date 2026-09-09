@@ -8,7 +8,7 @@ export interface NativeCapture { preview?: CapturedAsset; sources: CapturedAsset
 const SCRIPT = String.raw`
 param([string]$OutDir)
 $ErrorActionPreference='Stop'; Add-Type -AssemblyName System.Drawing
-Add-Type @'
+Add-Type -ReferencedAssemblies 'System.Drawing.dll' -TypeDefinition @'
 using System; using System.Runtime.InteropServices; using System.Drawing; using System.Drawing.Imaging;
 public static class CDP {
  [DllImport("user32.dll",SetLastError=true)] public static extern bool OpenClipboard(IntPtr h);
