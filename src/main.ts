@@ -60,7 +60,6 @@ class ChemDrawPastePlugin extends Plugin {
     try {
       const captured = await captureWindowsClipboard(stage);
       if (!captured.preview) return void new Notice("ChemDraw Paste: no CF_ENHMETAFILE preview was available.");
-      if (captured.sources.length === 0) return void new Notice("ChemDraw Paste: import stopped because ChemDraw Interchange Format was not readable; no files were created.");
       const previewPath = await this.app.fileManager.getAvailablePathForAttachment("chemdraw-preview.png", view.file.path);
       await this.app.vault.createBinary(previewPath, await readCaptured(captured.preview.path));
       const sourcePaths: string[] = [];
