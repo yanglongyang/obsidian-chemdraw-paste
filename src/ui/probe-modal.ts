@@ -7,6 +7,7 @@ export class ClipboardProbeModal extends Modal {
 
   onOpen(): void {
     const { contentEl } = this;
+    this.modalEl.addClass("chemdraw-paste-modal-shell");
     contentEl.addClass("chemdraw-paste-modal");
     contentEl.createEl("h2", { text: "ChemDraw Clipboard Probe" });
     contentEl.createEl("p", { text: "Read-only diagnostic metadata. Clipboard payload content is never displayed or saved.", cls: "chemdraw-paste-muted" });
@@ -73,5 +74,8 @@ export class ClipboardProbeModal extends Modal {
     row.createEl("td", { text: format.observations.map((item) => item.error ?? item.note).filter(Boolean).join("; ") || "—" });
   }
 
-  onClose(): void { this.contentEl.empty(); }
+  onClose(): void {
+    this.modalEl.removeClass("chemdraw-paste-modal-shell");
+    this.contentEl.empty();
+  }
 }

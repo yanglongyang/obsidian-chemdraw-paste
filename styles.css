@@ -1,15 +1,23 @@
-.chemdraw-paste-modal { max-width: 980px; }
+.modal.chemdraw-paste-modal-shell { width: min(96vw, 1120px); max-width: 1120px; }
+.chemdraw-paste-modal { max-width: none; overflow-x: hidden; }
 .chemdraw-paste-modal h3 { border-bottom: 1px solid var(--background-modifier-border); margin-top: 1.25em; padding-bottom: .35em; }
 .chemdraw-paste-muted { color: var(--text-muted); }
 .chemdraw-paste-key-values { display: grid; grid-template-columns: minmax(130px, 180px) 1fr; gap: .3rem .8rem; }
 .chemdraw-paste-label { color: var(--text-muted); }
 .chemdraw-paste-providers { display: grid; gap: .55rem; }
-.chemdraw-paste-provider { display: grid; grid-template-columns: minmax(150px, 1fr) 95px minmax(190px, 2fr); gap: .5rem; align-items: baseline; }
+.chemdraw-paste-provider { display: grid; grid-template-columns: minmax(120px, 1fr) max-content minmax(0, 2fr); gap: .5rem; align-items: baseline; }
+.chemdraw-paste-provider code { min-width: 0; overflow-wrap: anywhere; white-space: normal; }
 .chemdraw-paste-provider > div { grid-column: 1 / -1; }
 .chemdraw-paste-ok { color: var(--text-success); }
 .chemdraw-paste-error { color: var(--text-error); overflow-wrap: anywhere; }
 .chemdraw-paste-candidate { color: var(--text-accent); font-size: .82em; margin-top: .25em; }
-.chemdraw-paste-table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
-.chemdraw-paste-table th, .chemdraw-paste-table td { padding: .45rem .55rem; text-align: left; vertical-align: top; border-bottom: 1px solid var(--background-modifier-border); overflow-wrap: anywhere; }
+.chemdraw-paste-table { width: 100%; max-width: 100%; table-layout: fixed; border-collapse: collapse; }
+.chemdraw-paste-table th, .chemdraw-paste-table td { padding: .45rem .55rem; text-align: left; vertical-align: top; border-bottom: 1px solid var(--background-modifier-border); overflow-wrap: anywhere; word-break: break-word; }
 .chemdraw-paste-table code { font-family: var(--font-monospace); white-space: normal; overflow-wrap: anywhere; }
-@media (max-width: 650px) { .chemdraw-paste-provider { grid-template-columns: 1fr; } .chemdraw-paste-key-values { grid-template-columns: 1fr; gap: .1rem; } }
+@media (max-width: 650px) {
+  .modal.chemdraw-paste-modal-shell { width: 96vw; }
+  .chemdraw-paste-provider { grid-template-columns: 1fr; }
+  .chemdraw-paste-key-values { grid-template-columns: 1fr; gap: .1rem; }
+  .chemdraw-paste-table { font-size: .82em; }
+  .chemdraw-paste-table th, .chemdraw-paste-table td { padding: .3rem; }
+}
