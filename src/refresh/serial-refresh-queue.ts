@@ -27,7 +27,12 @@ export class SerialRefreshQueue {
         const key = this.pending.shift();
         if (!key) continue;
         this.queued.delete(key);
-        await this.run(key);
+        try {
+          await this.run(key);
+        } catch {
+          // A task owns its user-facing error handling. Keep later sources
+          // flowing even when one renderer invocation rejects unexpectedly.
+        }
       }
     } finally {
       this.running = false;

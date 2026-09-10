@@ -495,7 +495,7 @@ class ChemDrawPasteControlTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "ChemDraw Paste — Clipboard Probe" });
-    containerEl.createEl("p", { text: "Read-only diagnostics. These controls never modify the clipboard or your note." });
+    containerEl.createEl("p", { text: "Diagnostics are read-only. Import and refresh controls intentionally write ChemDraw assets or preview embeds to the Vault." });
     new Setting(containerEl)
       .setName("ChemDraw asset folder")
       .setDesc("Vault-relative folder for new ChemDraw/YYYY-MM preview/source pairs. Changing this affects new pastes only.")
@@ -518,7 +518,7 @@ class ChemDrawPasteControlTab extends PluginSettingTab {
       .addButton((button) => button.setButtonText("Import Preview").setWarning().onClick(() => void this.plugin.importClipboardPreview()));
     new Setting(containerEl)
       .setName("Refresh current ChemDraw preview")
-      .setDesc("Place the cursor on a managed preview embed, copy the updated drawing in ChemDraw, then refresh both paired files in place.")
+      .setDesc("Place the cursor on a managed preview embed, copy the updated drawing in ChemDraw, then refresh only the paired preview. The source.cdx is never modified.")
       .addButton((button) => button.setButtonText("Refresh Preview").onClick(() => void this.plugin.refreshCurrentChemDrawPreview()));
     new Setting(containerEl)
       .setName("Show last diagnostic")

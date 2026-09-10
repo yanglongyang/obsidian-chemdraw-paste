@@ -1,7 +1,7 @@
 {
   "name": "obsidian-chemdraw-paste",
-  "version": "0.3.0",
-  "description": "Inspect ChemDraw clipboard formats in Obsidian Desktop.",
+  "version": "0.3.1",
+  "description": "Paste ChemDraw previews with paired editable CDX sources and automatic preview synchronization in Obsidian Desktop.",
   "private": true,
   "main": "main.js",
   "scripts": {

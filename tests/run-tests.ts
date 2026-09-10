@@ -124,6 +124,20 @@ test("automatic refresh queue serializes renders and de-duplicates stale paths",
   assert.deepEqual(events, ["start:first", "end:first", "start:second", "end:second"]);
 });
 
+test("automatic refresh queue continues after one renderer failure", async () => {
+  const events: string[] = [];
+  const queue = new SerialRefreshQueue(async (key) => {
+    events.push(`start:${key}`);
+    if (key === "broken") throw new Error("renderer failed");
+    events.push(`end:${key}`);
+  });
+  queue.enqueue("broken");
+  queue.enqueue("healthy");
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(events, ["start:broken", "start:healthy", "end:healthy"]);
+});
+
 test("default-app opener reports injected failures predictably", async () => {
   await assert.rejects(
     () => openSourceWithDefaultApp("C:\\Vault\\ChemDraw\\source.cdx", async () => { throw new Error("association missing"); }),
