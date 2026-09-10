@@ -17,7 +17,7 @@ import { getObsidianVersion, getRuntimeInfo } from "./utils/runtime";
 import { chemDrawMonthFolder, makeChemDrawBundleId, normalizeChemDrawAssetFolder } from "./utils/vault-path";
 import { ClipboardProbeModal } from "./ui/probe-modal";
 import { WindowsChemDrawRenderer, getPngDimensions, isPng } from "./render/windows-chemdraw-renderer";
-import { SerialRefreshQueue } from "./refresh/serial-refresh-queue";
+import { AutomaticRefreshCoordinator, shouldRefreshStalePreview } from "./refresh/automatic-refresh-coordinator";
 
 interface PasteTarget {
   view: MarkdownView;
@@ -31,12 +31,6 @@ interface ChemDrawPasteSettings {
 
 const DEFAULT_SETTINGS: ChemDrawPasteSettings = { assetFolder: "ChemDraw", autoRefresh: true };
 
-interface RefreshState {
-  timer?: ReturnType<typeof setTimeout>;
-  running: boolean;
-  pending: boolean;
-}
-
 class ChemDrawPastePlugin extends Plugin {
   private readonly electronProvider = new ElectronClipboardProvider();
   private readonly pasteProvider = new PasteEventProvider();
@@ -44,11 +38,10 @@ class ChemDrawPastePlugin extends Plugin {
   private readonly nativeClipboardMonitor = new NativeClipboardMonitor();
   private readonly renderer = new WindowsChemDrawRenderer();
   private pluginSettings: ChemDrawPasteSettings = { ...DEFAULT_SETTINGS };
-  private readonly refreshStates = new Map<string, RefreshState>();
-  private readonly automaticRefreshQueue = new SerialRefreshQueue(async (sourcePath) => {
-    const state = this.refreshStates.get(sourcePath);
-    if (state) await this.processAutomaticRefresh(sourcePath, state);
-  });
+  private readonly automaticRefresh = new AutomaticRefreshCoordinator(
+    () => this.pluginSettings.autoRefresh,
+    (sourcePath) => this.processAutomaticRefresh(sourcePath),
+  );
   private lastReport?: ProbeReport;
 
   async onload(): Promise<void> {
@@ -87,15 +80,13 @@ class ChemDrawPastePlugin extends Plugin {
     this.register(() => window.removeEventListener("paste", smartPasteListener, true));
     this.registerDomEvent(document, "dblclick", (event) => void this.handlePreviewDoubleClick(event));
     this.registerDomEvent(document, "contextmenu", (event) => this.handlePreviewContextMenu(event));
-    new Notice("ChemDraw Paste: Clipboard Probe loaded. Use the ribbon flask icon or plugin settings if commands are not visible.");
+    new Notice("ChemDraw Paste loaded. Use the ribbon flask icon or plugin settings if commands are not visible.");
   }
 
   onunload(): void {
     this.pasteProvider.disarm();
     this.nativeClipboardMonitor.stop();
-    for (const state of this.refreshStates.values()) if (state.timer) clearTimeout(state.timer);
-    this.refreshStates.clear();
-    this.automaticRefreshQueue.clear();
+    this.automaticRefresh.clear();
   }
 
   async inspectClipboard(): Promise<void> {
@@ -222,32 +213,17 @@ class ChemDrawPastePlugin extends Plugin {
     this.pluginSettings.autoRefresh = value;
     await this.saveData(this.pluginSettings);
     if (value) void this.reconcileStalePreviews();
-    else this.automaticRefreshQueue.clear();
+    else this.automaticRefresh.clear();
   }
 
   getAutoRefresh(): boolean { return this.pluginSettings.autoRefresh; }
 
   private scheduleAutomaticRefresh(sourcePath: string, delay = 750): void {
     if (process.platform !== "win32" || !this.pluginSettings.autoRefresh || !resolveChemDrawPreviewPath(sourcePath, this.getAssetFolder())) return;
-    const state = this.refreshStates.get(sourcePath) ?? { running: false, pending: false };
-    this.refreshStates.set(sourcePath, state);
-    if (state.running) { state.pending = true; return; }
-    if (state.timer) clearTimeout(state.timer);
-    state.timer = setTimeout(() => {
-      state.timer = undefined;
-      this.enqueueAutomaticRefresh(sourcePath, state);
-    }, delay);
+    this.automaticRefresh.schedule(sourcePath, delay);
   }
 
-  private enqueueAutomaticRefresh(sourcePath: string, state: RefreshState): void {
-    if (!this.pluginSettings.autoRefresh) return;
-    if (state.running) { state.pending = true; return; }
-    this.automaticRefreshQueue.enqueue(sourcePath);
-  }
-
-  private async processAutomaticRefresh(sourcePath: string, state: RefreshState): Promise<void> {
-    if (state.running || !this.pluginSettings.autoRefresh) return;
-    state.running = true;
+  private async processAutomaticRefresh(sourcePath: string): Promise<void> {
     let stage: string | undefined;
     try {
       stage = await mkdtemp(join(tmpdir(), "chemdraw-render-"));
@@ -273,11 +249,6 @@ class ChemDrawPastePlugin extends Plugin {
       console.debug("[ChemDraw Paste] automatic preview refresh failed", { sourcePath, error: error instanceof Error ? error.message : String(error) });
     } finally {
       if (stage) await rm(stage, { recursive: true, force: true });
-      state.running = false;
-      if (state.pending) {
-        state.pending = false;
-        this.scheduleAutomaticRefresh(sourcePath, 0);
-      }
     }
   }
 
@@ -311,7 +282,7 @@ class ChemDrawPastePlugin extends Plugin {
           if (!previewPath) continue;
           const sourceStat = await this.app.vault.adapter.stat(sourcePath);
           const previewStat = await this.app.vault.adapter.stat(previewPath);
-          if (!previewStat || (sourceStat && sourceStat.mtime > previewStat.mtime)) this.scheduleAutomaticRefresh(sourcePath, 0);
+          if (shouldRefreshStalePreview(sourceStat?.mtime ?? null, previewStat?.mtime ?? null)) this.scheduleAutomaticRefresh(sourcePath, 0);
         }
       }
     } catch (error) {
@@ -494,7 +465,7 @@ class ChemDrawPasteControlTab extends PluginSettingTab {
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "ChemDraw Paste — Clipboard Probe" });
+    containerEl.createEl("h2", { text: "ChemDraw Paste — Diagnostics & Import" });
     containerEl.createEl("p", { text: "Diagnostics are read-only. Import and refresh controls intentionally write ChemDraw assets or preview embeds to the Vault." });
     new Setting(containerEl)
       .setName("ChemDraw asset folder")

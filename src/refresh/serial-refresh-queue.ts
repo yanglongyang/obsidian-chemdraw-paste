@@ -29,9 +29,10 @@ export class SerialRefreshQueue {
         this.queued.delete(key);
         try {
           await this.run(key);
-        } catch {
+        } catch (error) {
           // A task owns its user-facing error handling. Keep later sources
           // flowing even when one renderer invocation rejects unexpectedly.
+          console.error("[ChemDraw Paste] refresh queue task failed", error);
         }
       }
     } finally {

@@ -13,6 +13,7 @@ import { managedPreviewPathFromMarkdownLine, resolveChemDrawPreviewPath, resolve
 import { openSourceWithDefaultApp } from "../src/interaction/source-opener";
 import { getPngDimensions, isPng } from "../src/render/windows-chemdraw-renderer";
 import { SerialRefreshQueue } from "../src/refresh/serial-refresh-queue";
+import { AutomaticRefreshCoordinator, shouldRefreshStalePreview } from "../src/refresh/automatic-refresh-coordinator";
 
 const tests: Array<[string, () => void | Promise<void>]> = [];
 const test = (name: string, fn: () => void | Promise<void>) => tests.push([name, fn]);
@@ -136,6 +137,48 @@ test("automatic refresh queue continues after one renderer failure", async () =>
   await new Promise((resolve) => setTimeout(resolve, 0));
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(events, ["start:broken", "start:healthy", "end:healthy"]);
+});
+
+test("automatic refresh coordinator debounces repeated modify events", async () => {
+  const calls: string[] = [];
+  const coordinator = new AutomaticRefreshCoordinator(() => true, async (sourcePath) => { calls.push(sourcePath); }, 10);
+  coordinator.schedule("ChemDraw/2026-09/CD-A-source.cdx");
+  coordinator.schedule("ChemDraw/2026-09/CD-A-source.cdx");
+  coordinator.schedule("ChemDraw/2026-09/CD-A-source.cdx");
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.deepEqual(calls, ["ChemDraw/2026-09/CD-A-source.cdx"]);
+  coordinator.clear();
+});
+
+test("automatic refresh coordinator reruns once when a save arrives during rendering", async () => {
+  const calls: string[] = [];
+  let release!: () => void;
+  const firstRender = new Promise<void>((resolve) => { release = resolve; });
+  const coordinator = new AutomaticRefreshCoordinator(() => true, async (sourcePath) => {
+    calls.push(sourcePath);
+    if (calls.length === 1) await firstRender;
+  }, 0);
+  coordinator.schedule("source.cdx", 0);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  coordinator.schedule("source.cdx", 0);
+  coordinator.schedule("source.cdx", 0);
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(calls, ["source.cdx", "source.cdx"]);
+  coordinator.clear();
+});
+
+test("automatic refresh coordinator stays disabled and stale policy is conservative", async () => {
+  let calls = 0;
+  const coordinator = new AutomaticRefreshCoordinator(() => false, async () => { calls += 1; }, 0);
+  coordinator.schedule("disabled.cdx", 0);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(calls, 0);
+  assert.equal(shouldRefreshStalePreview(20, 10), true);
+  assert.equal(shouldRefreshStalePreview(10, 20), false);
+  assert.equal(shouldRefreshStalePreview(20, null), true);
+  assert.equal(shouldRefreshStalePreview(null, 20), false);
+  coordinator.clear();
 });
 
 test("default-app opener reports injected failures predictably", async () => {

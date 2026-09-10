@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.1 — Release Hardening
+
+### Changed
+
+- Manual clipboard refresh now updates only the derived preview PNG; the paired `source.cdx` is never replaced.
+- Automatic rendering preserves the existing preview canvas while fitting new ChemDraw output proportionally with white padding.
+- Automatic renders are serialized globally, use a stable CDX snapshot, and continue processing later sources after an isolated task failure.
+- Settings and package metadata now describe the import, editable-source, and automatic synchronization workflow.
+
+### Tests
+
+- Added regression coverage for debounce, pending rerenders, disabled synchronization, stale-preview decisions, queue serialization, deduplication, and failure isolation.
+
 ## 0.3.0 — Automatic Preview Synchronization
 
 ### Added
@@ -21,9 +34,8 @@
 ### Added
 
 - Refresh an existing managed preview/source pair from the current ChemDraw clipboard.
-- Add a managed-preview-only context-menu action, `Refresh from ChemDraw Clipboard`.
-- Preserve object ID, file paths, and Markdown while replacing both files.
-- Roll back the preview if source replacement fails.
+- Add a managed-preview-only context-menu action, `Refresh Preview from ChemDraw Clipboard`.
+- Preserve object ID, file paths, and Markdown while replacing the preview in place.
 
 ## 0.2.1 — Preview Interaction Closure
 
